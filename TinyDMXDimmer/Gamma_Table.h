@@ -9,9 +9,6 @@
 #ifndef GAMMA_TABLE_H_
 #define GAMMA_TABLE_H_
 
-#include <avr/io.h>
-#include <avr/pgmspace.h>
-
 
 const uint16_t aPwmValueTable[256] PROGMEM =
 {

@@ -12,6 +12,8 @@
 #ifndef DMXRDM_RESPONDER_H_
 #define DMXRDM_RESPONDER_H_
 
+#include "tinydmx.h"
+
 // ----------------------------------------------------------------------------
 // Defined Parameters (ABSTRACT!)
 // ----------------------------------------------------------------------------
@@ -110,6 +112,9 @@
 #define SD_COLOR_ADD_BLUE				0x0207 // Additive Color Mixer - Blue
 
 
+// MISC
+#define DMX_512_MAX_CHANNEL_NR			512
+
 // ----------------------------------------------------------------------------
 // Device Data Structure
 // ----------------------------------------------------------------------------
@@ -125,6 +130,52 @@ typedef  union
 	tRdmUID UID;
 	uint8_t UID_byte[sizeof(tRdmUID)];
 } tuRdmUID;
+
+/*
+typedef union
+{
+	struct
+	{
+		// Reversed because of Byte ordering
+		uint8_t		ParameterData[];
+		uint8_t		ParameterDataLength;
+		uint16_t	ParameterID;
+		uint8_t		CommandClass;
+		uint16_t	SubDevice;
+		uint8_t		MessageCount;
+		uint8_t		PortID_ResponseType;
+		uint8_t		TransactionNumber;
+		tuRdmUID	SourceUID;
+		tuRdmUID	DestinationUID;
+		uint8_t		MessageLength;
+		uint8_t		SubStartCode;
+		uint8_t		StartCode;
+	};
+	uint8_t		Bytes[];
+} tuRdmInputPacket;
+
+typedef union
+{
+	struct
+	{
+		// Reversed because of Byte ordering
+		uint8_t		ParameterData[];
+		uint8_t		ParameterDataLength;
+		uint16_t	ParameterID;
+		uint8_t		CommandClass;
+		uint16_t	SubDevice;
+		uint8_t		MessageCount;
+		uint8_t		PortID_ResponseType;
+		uint8_t		TransactionNumber;
+		tuRdmUID	SourceUID;
+		tuRdmUID	DestinationUID;
+		uint8_t		MessageLength;
+		uint8_t		SubStartCode;
+		uint8_t		StartCode;
+	};
+	uint8_t		Bytes[];
+} tuRdmOutputPacket;
+*/ 
 
 typedef struct // Size: 49 Bytes
 {

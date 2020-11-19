@@ -8,8 +8,8 @@
  */ 
 
 
-#include <avr/pgmspace.h>
-#include "dmxrdm_responder.h"
+// #include <avr/pgmspace.h>
+#include "rdm_spec.h"
 
 
 #ifndef RDM_DEVICE_INFORMATION_H_

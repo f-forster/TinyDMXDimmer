@@ -8,12 +8,9 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
-#include <util/delay.h>
 #include <avr/pgmspace.h>
-#include <avr/eeprom.h>
-#include "Production_Information.h"
-#include "dmxrdm_responder.h"
-#include "RDM_Device_Information.h"
+#include <util/delay.h>
+#include "dmx-rdm/tinydmx.h"
 #include "Gamma_Table.h"
 
 // ----------------------------------------------------------------------------
@@ -35,69 +32,34 @@
 
 
 
-// Constant Values
-#define RDM_INPUT_DATA_BUFFER_SIZE		72			// TODO: evtl anpassen wenn fertig
-#define RDM_OUTPUT_DATA_BUFFER_SIZE		72
-
-#define RDM_INPUT_BUFFER_LAST		RDM_INPUT_DATA_BUFFER_SIZE+23
-#define RDM_OUTPUT_BUFFER_LAST		RDM_OUTPUT_DATA_BUFFER_SIZE+23
-
-
-// DMX Receiver Status Codes
-#define DMX_WAIT_FOR_RESET			1
-#define DMX_VERIFY_RESET_LENGTH		2
-#define DMX_RESET_LENGTH_OK			3
-#define DMX_RECEIVE_RESET			4
-#define DMX_RECEIVE_DMX_VALUES		5
-#define	DMX_RECEIVE_RDM_DATA		6
-#define RECV_RDM_COMPLETE			7
 
 
 
-// DMX Receiver Error Codes
-#define ERROR_OVERHEAT				1
-#define ERROR_UART_OVF0				2
-#define ERROR_UART_FE0				3
-#define ERROR_TIMEOUT_MAB			4
-#define ERROR_TIMEOUT_DATA			5
-#define ERROR_UNKNOWN_STARTCODE		6
-#define ERROR_DMX_DATA_OVERRUN		7
-
-#define ERROR_RDM_UNKNOWN_SUB_STARTCODE		8
-#define ERROR_RDM_WRONG_MESSAGE_CHECKSUM	9
-#define ERROR_RDM_DATA_OVERRUN				10
 
 
-// DMX RDM Process Data Flags
-#define DMX_DATA_READY_FOR_PROCESS			(1<<0)
-#define RDM_DATA_READY_FOR_PROCESS			(1<<1)
-#define DMX_DATA_PROCESSING					(1<<2)
 
-#define GPIOR1_rdmResponseMDBLength			GPIOR1
+// #define GPIOR1_rdmResponseMDBLength			GPIOR1
 
 
 
 #define low(x)   ((x) & 0xFF)
 #define high(x)   (((x)>>8) & 0xFF)
 
-#define EEM_OPERATION_INFO_DATA		__attribute__ ((section (".ee_operation_information_section")))
-#define EEM_16_CONTROL_BIT_FIELD	0x99FF
-#define EEM_32_CONTROL_BIT_FIELD	0x99FF99FF
+// #define EEM_OPERATION_INFO_DATA		__attribute__ ((section (".ee_operation_information_section")))
+
 
 // ----------------------------------------------------------------------------
 // Prototypes
 // ----------------------------------------------------------------------------
 
-void			InitIO();					// Init function for I/O functionality
-void			InitTempSens();				// Init ADC an so on
-void			InitTimer();				// Init function for timer registers
-void			InitInterrupts();			// Init function for interrupt functionality
-void			InitDMX();					// Init function for everything with DMX
-
+void			InitDevice();				
+		
+			
 void			ReportError(const uint8_t);	// Process an Error-Ringbuffer
 void			ProcessDMXValues();			// Write received DMX-Values into PWM-Registers
 void			ProcessRDMMessage();		// Evaluate received RDM Message and send Response
 
+/*
 void			ReadStrToTransmitBuffer( const uint8_t aSrcStr[], uint8_t srcStrSize);
 void			ReadByteToTransmitBuffer( const uint8_t *aSrcByte);
 void			ReadRamByteToTransmitBuffer( uint8_t SrcByte);
@@ -106,77 +68,18 @@ void			ReadSignedWordToTransmitBuffer( const int16_t *aSrcWord);
 void			ReadRamWordToTransmitBuffer( uint16_t srcWord);
 void			ReadDWordToTransmitBuffer( const uint32_t *aSrcDWord);
 void			ReadRamDWordToTransmitBuffer( uint32_t SrcDWord);
+*/
+
 int16_t			ReadCurrentTemperature();
 
 ISR (USART0_RX_vect);		// UART Receive ISR
 ISR (TIMER0_OVF_vect);		// Timer0 Overflow ISR
 ISR (PCINT0_vect);
-ISR(TIMER0_COMPA_vect);
+ISR (TIMER0_COMPA_vect);
 
 // ----------------------------------------------------------------------------
 // Typedefs
 // ----------------------------------------------------------------------------
-
-typedef struct
-{
-	// PageSize of 4 Bytes
-	// Todo: Check beginning of operationinformation section (page size)
-	uint16_t DmxStartAddress;
-	uint16_t dummy1;
-	
-	uint32_t DmxDeviceHours;
-	uint32_t DmxPowerCycles;
-	
-	uint16_t DmxStartAddressControlField;
-	uint16_t dummy2;
-	uint32_t DmxDeviceHoursControlField;
-	uint32_t DmxPowerCyclesControlField;
-	
-} tOperationInformation;
-
-typedef union
-{
-	struct
-	{
-		// Reversed because of Byte ordering
-		uint8_t		ParameterData[RDM_INPUT_DATA_BUFFER_SIZE];
-		uint8_t		ParameterDataLength;
-		uint16_t	ParameterID;
-		uint8_t		CommandClass;
-		uint16_t	SubDevice;
-		uint8_t		MessageCount;
-		uint8_t		PortID_ResponseType;
-		uint8_t		TransactionNumber;
-		tuRdmUID	SourceUID;
-		tuRdmUID	DestinationUID;
-		uint8_t		MessageLength;
-		uint8_t		SubStartCode;
-		uint8_t		StartCode;
-	};
-	uint8_t		Bytes[RDM_INPUT_DATA_BUFFER_SIZE+24];
-} tuRdmInputPacket;
-
-typedef union
-{
-	struct
-	{
-		// Reversed because of Byte ordering
-		uint8_t		ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE];
-		uint8_t		ParameterDataLength;
-		uint16_t	ParameterID;
-		uint8_t		CommandClass;
-		uint16_t	SubDevice;
-		uint8_t		MessageCount;
-		uint8_t		PortID_ResponseType;
-		uint8_t		TransactionNumber;
-		tuRdmUID	SourceUID;
-		tuRdmUID	DestinationUID;
-		uint8_t		MessageLength;
-		uint8_t		SubStartCode;
-		uint8_t		StartCode;
-	};
-	uint8_t		Bytes[RDM_OUTPUT_DATA_BUFFER_SIZE+24];
-} tuRdmOutputPacket;
 
 
 // ----------------------------------------------------------------------------
@@ -185,36 +88,7 @@ typedef union
 
 // Unspecified
 extern const	uint16_t aPwmValueTable[] PROGMEM;
-extern			tProductionInformation eeProductionInformation EEM_PRODUCTION_INFO_DATA;
 
-// Temporary!
-volatile		uint8_t lastError = 0; //Temp, TODO: anständigen ringpuffer...
-
-
-// DMX-specific declarations:   -----------------------------------------------
-
-volatile		uint8_t dmxrdmReceiverStatus = 0;
-volatile		uint8_t dmxrdmDataProcessingStatus = 0;
-volatile		uint16_t dmxStartAddress = 1;
-volatile		uint8_t  dmxReceiveBuffer[4]; // Prepared for White Channel
-
-// RDM Stuff
-extern const	tDevice_Information aDeviceInformation PGM_DEVICE_INFO_DATA;
-
-tOperationInformation eeOperationInformation EEM_OPERATION_INFO_DATA = {
-	1, // DMX START ADRESSE
-	0,
-	0,
-	0,0,0,0,0 // TODO: and propper checksums...
-};
-
-volatile		tuRdmUID rdmUID;
-
-volatile		tuRdmOutputPacket rdmTransmitBuffer;
-volatile		tuRdmInputPacket rdmReceiveBuffer;
-
-// Timer Stuff
-volatile		uint32_t dmxDeviceHours;
 
 // ------------------------------------------------------------------------------------------------------------------------
 // main
@@ -222,14 +96,22 @@ volatile		uint32_t dmxDeviceHours;
 
 int main(void)
 {
+	tRdmUID thisRdmUID;
+	uint16_t dmxAddr;
 	
-	InitIO();
-	InitTimer();
-	InitInterrupts();
-	InitDMX();
-	//TODO: main zam ramma
+	InitDevice();
+
+	thisRdmUID.deviceID = 0xbc9a7856;
+	thisRdmUID.manufacturerID = 0x3412;
 	
-	UCSR0B |= (1<<RXEN0);		// RXEN
+	// DMX Start-Address
+	dmxAddr = 5;
+
+
+	InitTinyDMX(&thisRdmUID, dmxAddr);
+
+
+
 
 
 	sei();
@@ -237,24 +119,16 @@ int main(void)
 	while(1) {
 		
 
-
-		
-		// 		//LÖSCHEN TEMP
-		// 		uint8_t temp = eeprom_read_word(&eeProductionInformation.testResult);
-		// 		temp = pgm_read_dword(&aDeviceInformation.rdmUID.UID.manufacturerID);
-		// 		// ? TEMPORARY
-		
-		
 		asm volatile ("nop");
 		
-		if (dmxrdmDataProcessingStatus & RDM_DATA_READY_FOR_PROCESS) {
+		if (GetSatus() & RDM_DATA_READY_FOR_PROCESS) {
 			// Transmit Buffer is free to use
 			ProcessRDMMessage();
 		}
-		if (dmxrdmDataProcessingStatus & DMX_DATA_READY_FOR_PROCESS) {
+		if (GetSatus() & DMX_DATA_READY_FOR_PROCESS) {
 			
 			ProcessDMXValues();
-			if (lastError) asm volatile ("nop"); // temp
+			asm volatile ("nop"); // temp
 		}
 	}
 }
@@ -262,39 +136,33 @@ int main(void)
 // ------------------------------------------------------------------------------------------------------------------------
 
 void ProcessDMXValues()
-{	// Getestet und funktioniert!
-	// 1 Durchlauf dauert ca. 15us
-	dmxrdmDataProcessingStatus |= DMX_DATA_PROCESSING;
+{	
+	tRgbwColor* outputColor = (tRgbwColor*)GetDMXValues();;
 	
-	if (dmxReceiveBuffer[0] == 0) {
+	if (outputColor->r == 0) {
 		TOCPMCOE &= ~TOCCER;												// Disable Output Mux (pull pin low)
 		} else {
-		PWMR = pgm_read_word(&aPwmValueTable[dmxReceiveBuffer[0]]);			// Load with PWM-Value, not inverted
+		PWMR = pgm_read_word(&aPwmValueTable[outputColor->r]);				// not inverted
 		TOCPMCOE |= TOCCER;													// Enable Output Mux (pin attached to timer)
 	}
-	if (dmxReceiveBuffer[1] == 0) {
+	if (outputColor->g == 0) {
 		TOCPMCOE &= ~TOCCEG;												// Disable Output Mux (pull pin low)
 		} else {
-		PWMG = 0x3FFF- pgm_read_word(&aPwmValueTable[dmxReceiveBuffer[1]]);			// Load with PWM-Value, inverted
+		PWMG = 0x3FFF- pgm_read_word(&aPwmValueTable[outputColor->g]);		// inverted
 		TOCPMCOE |= TOCCEG;													// Enable Output Mux (pin attached to timer)
 	}
-	if (dmxReceiveBuffer[2] == 0) {
+	if (outputColor->b == 0) {
 		TOCPMCOE &= ~TOCCEB;												// Disable Output Mux (pull pin low)
 		} else {
-		PWMB = 0x3FFF- pgm_read_word(&aPwmValueTable[dmxReceiveBuffer[2]]);	// Load with PWM-Value, inverted
+		PWMB = 0x3FFF- pgm_read_word(&aPwmValueTable[outputColor->b]);		// inverted
 		TOCPMCOE |= TOCCEB;													// Enable Output Mux (pin attached to timer)
 	}
-
-	// White Channel
-	if (dmxReceiveBuffer[3] == 0) {
+	if (outputColor->w == 0) {
 		TOCPMCOE &= ~TOCCEW;												// Disable Output Mux (pull pin low)
 		} else {
-		PWMW = pgm_read_word(&aPwmValueTable[dmxReceiveBuffer[3]]);			// Load with PWM-Value, not inverted
+		PWMW = pgm_read_word(&aPwmValueTable[outputColor->w]);				// not inverted
 		TOCPMCOE |= TOCCEW;													// Enable Output Mux (pin attached to timer)
 	}
-	
-	dmxrdmDataProcessingStatus &= ~DMX_DATA_READY_FOR_PROCESS;						// Reset Data Ready
-	dmxrdmDataProcessingStatus &= ~DMX_DATA_PROCESSING;								// Finished Processing
 }
 
 // ------------------------------------------------------------------------------------------------------------------------
@@ -302,11 +170,15 @@ void ProcessDMXValues()
 
 void ProcessRDMMessage()
 {
+	
+	
+	/*
+	
 	cli();
 	
 	// --------------------------------------------------
 	// Definitions:
-	// uint8_t			GPIOR1_rdmResponseMDBLength = 0; // is now declared as register
+	uint8_t			GPIOR1_rdmResponseMDBLength = 0;
 
 	// Input and Output Packet:
 	
@@ -651,9 +523,15 @@ void ProcessRDMMessage()
 	// --------------------------------------------------
 	dmxrdmDataProcessingStatus &= ~RDM_DATA_READY_FOR_PROCESS;						// Reset Data Ready
 	sei();
+	
+	
+	
+	
+	
+	*/
 }
 
-
+/*
 void ReadStrToTransmitBuffer( const uint8_t aSrcStr[], uint8_t srcStrSize)
 {
 	uint8_t stringReadIterator = 0;
@@ -664,6 +542,7 @@ void ReadStrToTransmitBuffer( const uint8_t aSrcStr[], uint8_t srcStrSize)
 		pgm_read_byte(&(aSrcStr[stringReadIterator++]));
 	}
 }
+
 
 void ReadByteToTransmitBuffer( const uint8_t *aSrcByte)
 {
@@ -707,183 +586,27 @@ void ReadRamDWordToTransmitBuffer( uint32_t SrcDWord)
 	*((uint32_t*)(&(rdmTransmitBuffer.ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE - GPIOR1_rdmResponseMDBLength]))) = SrcDWord;
 }
 
-
+*/
 
 
 // ------------------------------------------------------------------------------------------------------------------------
 
 ISR (USART0_RX_vect)
 {
-	uint8_t  uartReceivedData = 1;
-	uint8_t	 uartReceiveStatus = 0;
-	static	uint16_t uartReceiverCounter = 0;
-	static	uint8_t  rdmReceivedMessageLength = 0;
-	static	uint16_t rdmCalcInputChecksum;
-	// -----------------------------------
-	// Local copys of staus
-	uint8_t l_dmxrdmReceiverStatus = dmxrdmReceiverStatus;
-	uint8_t l_dmxrdmDataProcessingStatus = dmxrdmDataProcessingStatus;
-	
-	uartReceiveStatus = UCSR0A;		// Stats must be read before Data (p. 171)
-	uartReceivedData = UDR0;
-	// TODO: make proof against data Overrun!
-	
-	if (uartReceiveStatus & (1<<FE0)) {
-		if (uartReceivedData == 0) {
-			// Break detected ? Start time measurement
-			
-			l_dmxrdmReceiverStatus = DMX_VERIFY_RESET_LENGTH;
-			
-			// Loading Timer with data to verify minimum Reset-Pulse length of 88us
-			OCR0A = 41;					// = 45µs until Interrupt occurs TODO: Anpassen wenn sich Code VOR diesen Zeilen ändert
-			TCNT0 = 0;					// Timer counter value reset
-			TIFR0 |= (1<<OCF0A);		// Reset Timer0 compare interrupt flag
-			TIMSK0 |= (1<<OCIE0A);		// Timer0 compare interrupt enable
-			GIFR |= (1<<PCIF0);			// Enable Pin-Change Detector for rising edge at the end of Reset-Pulse
-			GIMSK |= (1<<PCIE0);		// Reset Pin-Change interrupt flag
-			
-			uartReceiverCounter = 0;	// Counter for incoming bytes
-
-			// TODO: Timer0 auf durchlaufen umbauen
-			// TODO: Laufzeitanalyse der RECV-ISR
-
-		}
-		else
-		{
-			ReportError(ERROR_UART_FE0);
-			l_dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-		}
-	}
-	else if (uartReceiveStatus & (1<<DOR0))
-	{
-		ReportError(ERROR_UART_OVF0);
-		l_dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-	}
-	else
-	{
-		if (l_dmxrdmReceiverStatus == DMX_RECEIVE_RESET)
-		{
-			// Check if Startcode was Received
-			if (uartReceivedData == SC_DMX512)
-			{
-				if (l_dmxrdmDataProcessingStatus & DMX_DATA_PROCESSING) {
-					// There is still DMX-Data which has to be processed
-					ReportError(ERROR_DMX_DATA_OVERRUN);
-					l_dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-					} else {
-					// DMX512 Startcode
-					l_dmxrdmReceiverStatus = DMX_RECEIVE_DMX_VALUES;		// Set Status
-					++uartReceiverCounter;
-				}
-			}
-			else if (uartReceivedData == SC_RDM)
-			{
-				if (l_dmxrdmDataProcessingStatus & RDM_DATA_READY_FOR_PROCESS) {
-					// There is still RDM-Data which has to be processed
-					ReportError(ERROR_RDM_DATA_OVERRUN);
-					l_dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-					} else {
-					// RDM Startcode
-					l_dmxrdmReceiverStatus = DMX_RECEIVE_RDM_DATA;			// Set Status
-					rdmReceiveBuffer.Bytes[RDM_INPUT_BUFFER_LAST] = SC_RDM;	// Write SC_RDM in Receive-Buffer
-					++uartReceiverCounter;
-					rdmCalcInputChecksum = SC_RDM;							// Reset checksum calculation
-					rdmReceivedMessageLength = 0;
-				}
-			}
-			else
-			{
-				// Unknown Startcode
-				ReportError(ERROR_UNKNOWN_STARTCODE);
-				l_dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-			}
-		}
-		else if (l_dmxrdmReceiverStatus == DMX_RECEIVE_DMX_VALUES)
-		{
-			if (uartReceiverCounter >= dmxStartAddress)
-			{
-				if (uartReceiverCounter == dmxStartAddress) {
-					dmxReceiveBuffer[0] = uartReceivedData;
-					} else if (uartReceiverCounter == (dmxStartAddress+1)) {
-					dmxReceiveBuffer[1] = uartReceivedData;
-					} else if (uartReceiverCounter == (dmxStartAddress+2)) {
-					dmxReceiveBuffer[2] = uartReceivedData;
-					} else if (uartReceiverCounter == (dmxStartAddress+3)) {
-					dmxReceiveBuffer[3] = uartReceivedData;					// Prepared for White Channel
-					l_dmxrdmDataProcessingStatus |= DMX_DATA_READY_FOR_PROCESS;
-					l_dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-				}
-			}
-			++uartReceiverCounter;
-		}
-		else if (l_dmxrdmReceiverStatus == DMX_RECEIVE_RDM_DATA)
-		{
-			if (uartReceiverCounter <= 8) {
-				if (uartReceiverCounter == 1)
-				{
-					if (uartReceivedData != SC_SUB_MESSAGE)
-					{
-						ReportError(ERROR_RDM_UNKNOWN_SUB_STARTCODE);
-						l_dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-						} else {
-						rdmReceiveBuffer.Bytes[RDM_INPUT_BUFFER_LAST-uartReceiverCounter] = uartReceivedData;
-						rdmCalcInputChecksum += uartReceivedData;
-					}
-				}
-				else if (uartReceiverCounter == 2)
-				{	// TODO: implement overrun protection here
-					// TODO: implement broadcast address match (for discovery commands!)
-					rdmReceivedMessageLength = uartReceivedData;
-					rdmReceiveBuffer.Bytes[RDM_INPUT_BUFFER_LAST-uartReceiverCounter] = uartReceivedData;
-					rdmCalcInputChecksum += uartReceivedData;
-				}
-				else if (rdmUID.UID_byte[uartReceiverCounter-3] != uartReceivedData)
-				{
-					// No Device Address Match
-					l_dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-					asm volatile ("nop");
-					} else {
-					rdmReceiveBuffer.Bytes[RDM_INPUT_BUFFER_LAST-uartReceiverCounter] = uartReceivedData;
-					rdmCalcInputChecksum += uartReceivedData;
-				}
-				} else {
-				// TODO: implement overrun protection here
-				rdmReceiveBuffer.Bytes[RDM_INPUT_BUFFER_LAST-uartReceiverCounter] = uartReceivedData;
-				
-				if (uartReceiverCounter < rdmReceivedMessageLength) {
-					// Only Calculate Checksum if no Checksum received
-					rdmCalcInputChecksum += uartReceivedData;
-					} else if (uartReceiverCounter == rdmReceivedMessageLength + 1) {
-					// Last Byte of RDM-Message received
-					if (rdmReceiveBuffer.Bytes[RDM_INPUT_BUFFER_LAST-uartReceiverCounter+1] == high(rdmCalcInputChecksum) &&
-					rdmReceiveBuffer.Bytes[RDM_INPUT_BUFFER_LAST-uartReceiverCounter] == low(rdmCalcInputChecksum)) {
-						// Checksum ok
-						l_dmxrdmDataProcessingStatus |= RDM_DATA_READY_FOR_PROCESS;
-						} else {
-						ReportError(ERROR_RDM_WRONG_MESSAGE_CHECKSUM);
-					}
-					l_dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-				}
-			}
-			++uartReceiverCounter;
-		}
-
-	}
-	
-	// Put back local copys
-	dmxrdmReceiverStatus = l_dmxrdmReceiverStatus;
-	dmxrdmDataProcessingStatus = l_dmxrdmDataProcessingStatus;
+	HandleUsartRx();
 }
 
 // ------------------------------------------------------------------------------------------------------------------------
 
 ISR(TIMER0_COMPA_vect)
 {
+	/*
 	if (dmxrdmReceiverStatus == DMX_VERIFY_RESET_LENGTH) {
 		dmxrdmReceiverStatus = DMX_RESET_LENGTH_OK;
 		
 	}
 	TIMSK0 &= ~(1<<OCIE0A);
+	*/
 }
 
 // ------------------------------------------------------------------------------------------------------------------------
@@ -898,6 +621,7 @@ ISR (TIMER0_OVF_vect)
 
 ISR (PCINT0_vect)
 {
+	/*
 	if (dmxrdmReceiverStatus == DMX_RESET_LENGTH_OK) {
 		// Reset-pulse is ok -> ready to receive Data
 		dmxrdmReceiverStatus = DMX_RECEIVE_RESET;
@@ -907,30 +631,11 @@ ISR (PCINT0_vect)
 		dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
 		
 	}
+	*/
 	GIMSK &= ~(1<<PCIE0);
 	
 }
 
-// ------------------------------------------------------------------------------------------------------------------------
-
-void ReportError(const uint8_t errorForReport){
-	lastError = errorForReport;
-}
-
-// ------------------------------------------------------------------------------------------------------------------------
-
-void InitIO()
-{
-	// All outputs off
-	PORTA = 0;
-	PORTB = 0;
-	
-	// Set as Outputs
-	DDRA = (1<<PINA4) | (1<<PINA5) | (1<<PINA6) | (1<<PINA7);  // DMX RE/TE | PWM PIN 1 | PWM PIN 2 |  PWM PIN 3
-	DDRB = (1<<PINB2); // PWM PIN 4
-	
-	// TODO: Pullup bei unbenutzen pins einschalten
-}
 
 
 int16_t ReadCurrentTemperature()
@@ -940,94 +645,70 @@ int16_t ReadCurrentTemperature()
 	while (ADCSRA & (1<<ADSC));
 	uint16_t tempTempterature = (ADCL | (ADCH << 8));
 	
-	return tempTempterature - eeprom_read_word(&(eeProductionInformation.temperatureOffsetValue));
+	return tempTempterature; // offset?
 	// Todo: zugriff auf temp offset über RDM
 }
 
 
-void InitTempSens()
+void InitDevice(void)
 {
+	/************************************************************************/
+	/* IOs                                                                  */
+	/************************************************************************/
+	PORTA = 0;	// All outputs off
+	PORTB = 0;
+	
+	DDRA = (1<<PINA4) | (1<<PINA5) | (1<<PINA6) | (1<<PINA7);  // DMX RE/TE | PWM PIN 1 | PWM PIN 2 |  PWM PIN 3
+	DDRB = (1<<PINB2); // PWM PIN 4
+	// TODO: enable pullups on unused pins
+	
+	/************************************************************************/
+	/* Temperatur Sensor                                                    */
+	/************************************************************************/
 	ADMUXA = (1<<MUX2) | (1<<MUX3);				// Select Temperature Sensor
 	ADMUXB = (1<<REFS0);						// Select 1.1V internal Reference, no external connection
 	_delay_ms(1);
 	ReadCurrentTemperature();					// discard first measurement
-}
-
-void InitTimer ()
-{
+	
+	/************************************************************************/
+	/* Timers                                                               */
+	/************************************************************************/
 	// Timer1 Init
-	TCCR1A |= (1<<COM1A1) | (1<<COM1B1) | (1<<COM1B0) | (1<<WGM11);								// Fast PWM + non inverting mode
+	TCCR1A |= (1<<COM1A1) | (1<<COM1B1) | (1<<COM1B0) | (1<<WGM11);	// Fast PWM + non inverting mode
 	ICR1 = 0x3FFF;													// Max value of PWM
 	TCCR1B |=  (1<<CS10) | (1<<WGM13) | (1<<WGM12);					// Prescaler 1/61 (p. 116)
 	
-	
 	// Timer2 Init
-	TCCR2A |= (1<<COM2A1) | (1<<COM2B1) | (1<<COM2B0) | (1<<WGM21);		// Fast PWM + non inverting mode //Test
+	TCCR2A |= (1<<COM2A1) | (1<<COM2B1) | (1<<COM2B0) | (1<<WGM21);	// Fast PWM + non inverting mode //Test
 	ICR2 = 0x3FFF;													// Max value of PWM
-	TCCR2B |=  (1<<CS20) | (1<<WGM23) | (1<<WGM22);					// Prescaler 1/61 (p. 116) // Neu: ???????
+	TCCR2B |=  (1<<CS20) | (1<<WGM23) | (1<<WGM22);					// Prescaler 1/61 (p. 116)
 	
-	// PWMR = PWMB = PWMG = 0;		//TODO: dürfen nicht alle auf 0 gesetzt werden (invertierung)
-	
-	// Timer Preload -> phase difference of Timer1 and Timer2 (1FFF=TimerTop/2)
-	TCNT1 = 0;
+	TCNT1 = 0;			// Timer preload -> phase difference btw. Timer1 and Timer2 (1FFF=TimerTop/2)
 	TCNT2 = 0x1FFF;
 	
-	
-	// Output Mux
-	// Timer/Counter Output Compare Pin Mux Selection Registers (p. 116)
-	TOCPMSA1 = (1<<TOCC4S1) | (1<<TOCC5S1) | (1<<TOCC6S0) | (1<<TOCC7S0);
-	// Timer/Counter Output Compare Pin Mux Channel Output Enable
-	// TOCPMCOE = TOCCEB | TOCCEG | TOCCER | TOCCEW;	// erst in Process DMX
+	TOCPMSA1 = (1<<TOCC4S1) | (1<<TOCC5S1) | (1<<TOCC6S0) | (1<<TOCC7S0); // Timer/Counter Output Compare Pin Mux Selection Registers (p. 116)
 	
 	// Timer0
-	TCCR0B = (1<<CS01) ;			// Prescaler 1/8 -> 1 counterstep = 1µs -> 45 Counterstep + 41µs (Zeit bis FE0) = min. Reset Länge; ~3920 Überläufe = Timeout (1s)
+	TCCR0B = (1<<CS01) ;		// Prescaler 1/8 -> 1 counterstep = 1µs -> 45 Counterstep + 41µs (Zeit bis FE0) = min. Reset Länge; ~3920 Überläufe = Timeout (1s)
 	
-}
-
-// ------------------------------------------------------------------------------------------------------------------------
-
-void InitInterrupts()
-{
-	// Mask Pin-Change-Interrupt2 = PCINT on PA2
-	PCMSK0 |= (1<<PCINT2);			// PCINT is enabled ind GIMSK if Reset-Pulse is detected
 	
-	// Timer2 Overflow
+	/************************************************************************/
+	/* Interrupts                                                           */
+	/************************************************************************/
+	PCMSK0 |= (1<<PCINT2);			// Pin-Change-Interrupt2 on PA2
 	TIMSK0 |= (1<<TOIE0);			// Timer 0 OVF ISR enable (Timeout calculation)
-}
-
-// ------------------------------------------------------------------------------------------------------------------------
-
-void InitDMX()
-{
-	// USART0 Init
-	UCSR0B |= (1<<RXCIE0);			// Enable receive interrupt
-	UCSR0C |= (1<<USBS0);			// Two stop bits
-	UBRR0L = 1;						// with U2X0 (UCSR0A) = 0 -> 250k BAUD, hardcoded because of fixed DMX BAUD
+	
+	
+	/************************************************************************/
+	/* DMX Bus                                                              */
+	/************************************************************************/
+	UCSR0B |= (1<<RXCIE0);		// enable USART0 receive interrupt
+	UCSR0C |= (1<<USBS0);		// Two stop bits
+	UBRR0L = 1;					// with U2X0 (UCSR0A) = 0 -> 250k BAUD, hardcoded because of fixed DMX BAUD
 	// Mapping, Async Mode, 8 Data Bits is left default
-	
-	
-	// DMX-RDM UID
-	rdmUID.UID.deviceID = pgm_read_dword(&(aDeviceInformation.rdmUID.UID.deviceID));
-	rdmUID.UID.manufacturerID = pgm_read_word(&(aDeviceInformation.rdmUID.UID.manufacturerID));
-	
-	// DMX Start-Address
-	dmxStartAddress = eeprom_read_word(&(eeOperationInformation.DmxStartAddress));
-	if (dmxStartAddress < 1 || dmxStartAddress > 512 - 3) {		// TODO: Weiß Kanal irgendwann berücksichtigen
-		// Invalid StartAddress
-		dmxStartAddress = 1;
-		
-	}
-	// TODO: Testen !!!
-	// Increment Power-Cycle counter
-	uint32_t tempDmxPowerCycles = eeprom_read_dword(&(eeOperationInformation.DmxPowerCycles));
-	// uint32_t readDummy = eeprom_read_dword(&(eeOperationInformation.DmxPowerCyclesControlField));
-	
-	++tempDmxPowerCycles;
-	eeprom_write_dword(&(eeOperationInformation.DmxPowerCycles), tempDmxPowerCycles);
-	
-	
-	// Load Device Hours
-	dmxDeviceHours = eeprom_read_dword(&(eeOperationInformation.DmxDeviceHours));
-
+	UCSR0B |= (1<<RXEN0);		// Enable reception
 }
+
+
+
 
