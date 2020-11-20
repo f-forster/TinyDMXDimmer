@@ -12,7 +12,9 @@
 #ifndef DMXRDM_RESPONDER_H_
 #define DMXRDM_RESPONDER_H_
 
-#include "tinydmx.h"
+#define RDM_INPUT_BUFFER_SIZE		72			// TODO: evtl anpassen wenn fertig
+#define RDM_OUTPUT_BUFFER_SIZE		72
+
 
 // ----------------------------------------------------------------------------
 // Defined Parameters (ABSTRACT!)
@@ -115,29 +117,33 @@
 // MISC
 #define DMX_512_MAX_CHANNEL_NR			512
 
+
+
 // ----------------------------------------------------------------------------
 // Device Data Structure
 // ----------------------------------------------------------------------------
 
-typedef struct  
-{
-	uint16_t manufacturerID;
-	uint32_t deviceID;
-} tRdmUID;
-
 typedef  union
 {
-	tRdmUID UID;
-	uint8_t UID_byte[sizeof(tRdmUID)];
+	struct __attribute__((__packed__))
+	{
+		uint16_t manufacturerID;
+		uint32_t deviceID;
+	};
+	uint8_t bytes[6];
 } tuRdmUID;
 
-/*
+// size of base structure _without_ ParameterData
+#define RDM_PACKET_BASE_SIZE		24
+#define RDM_INPUT_BUFFER_LAST		RDM_INPUT_BUFFER_SIZE-1
+#define RDM_OUTPUT_BUFFER_LAST		RDM_OUTPUT_BUFFER_SIZE-1
+
 typedef union
 {
-	struct
+	struct __attribute__((__packed__))
 	{
 		// Reversed because of Byte ordering
-		uint8_t		ParameterData[];
+		uint8_t		ParameterData[RDM_INPUT_BUFFER_SIZE - RDM_PACKET_BASE_SIZE];
 		uint8_t		ParameterDataLength;
 		uint16_t	ParameterID;
 		uint8_t		CommandClass;
@@ -151,15 +157,15 @@ typedef union
 		uint8_t		SubStartCode;
 		uint8_t		StartCode;
 	};
-	uint8_t		Bytes[];
+	uint8_t		bytes[RDM_INPUT_BUFFER_SIZE];
 } tuRdmInputPacket;
 
 typedef union
 {
-	struct
+	struct __attribute__((__packed__))
 	{
 		// Reversed because of Byte ordering
-		uint8_t		ParameterData[];
+		uint8_t		ParameterData[RDM_OUTPUT_BUFFER_SIZE - RDM_PACKET_BASE_SIZE];
 		uint8_t		ParameterDataLength;
 		uint16_t	ParameterID;
 		uint8_t		CommandClass;
@@ -173,9 +179,9 @@ typedef union
 		uint8_t		SubStartCode;
 		uint8_t		StartCode;
 	};
-	uint8_t		Bytes[];
+	uint8_t		bytes[RDM_OUTPUT_BUFFER_SIZE];
 } tuRdmOutputPacket;
-*/ 
+
 
 typedef struct // Size: 49 Bytes
 {
@@ -183,33 +189,33 @@ typedef struct // Size: 49 Bytes
 	tuRdmUID	rdmUID;									// Unique ID for addressing as a RDM device
 	
 	// Hardware Parameters				
-	uint16_t			deviceModelID;						// @ DEVICE_INFO;					Device Model ID, determined by Manufacturer, see 10.5.1
-	uint16_t			productCategory;					// @ DEVICE_INFO;					Device Category, see 10.5.1 and table A-5
-	uint16_t			productDetailIDList;				// @ PRODUCT_DETAIL_ID_LIST;		Detaild produt info, see Table A-6, CURRENTLY only one Detail used!
-	uint8_t				sensorCount;						// @ DEVICE_INFO;					Number of Sensors, see 10.5.1
-	uint16_t			subDeviceCount;						// @ DEVICE_INFO;					Number of Sub-Devices, see 10.5.1
+	uint16_t			deviceModelID;					// @ DEVICE_INFO;					Device Model ID, determined by Manufacturer, see 10.5.1
+	uint16_t			productCategory;				// @ DEVICE_INFO;					Device Category, see 10.5.1 and table A-5
+	uint16_t			productDetailIDList;			// @ PRODUCT_DETAIL_ID_LIST;		Detaild produt info, see Table A-6, CURRENTLY only one Detail used!
+	uint8_t				sensorCount;					// @ DEVICE_INFO;					Number of Sensors, see 10.5.1
+	uint16_t			subDeviceCount;					// @ DEVICE_INFO;					Number of Sub-Devices, see 10.5.1
 
 
 	// Software Parameters
-	uint16_t			rdmProtocolVersion;					// @ DEVICE_INFO;					Implemented RDM Protocol Version, see 10.5.1
-	uint32_t			softwareVersionID;					// @ DEVICE_INFO;					ID of Software Version, see 10.5.1
+	uint16_t			rdmProtocolVersion;				// @ DEVICE_INFO;					Implemented RDM Protocol Version, see 10.5.1
+	uint32_t			softwareVersionID;				// @ DEVICE_INFO;					ID of Software Version, see 10.5.1
 
 
 	// Sensor Parameters, see 10.7.1
-	uint8_t				sensorType;							// @ SENSOR_DEFINITION;				See Table A-12
-	uint8_t				sensorUnit;							// @ SENSOR_DEFINITION;				See Table A-13
-	uint8_t				sensorPrefix;						// @ SENSOR_DEFINITION;				See Table A-14
-	int16_t				sensorRangeMinValue;				// @ SENSOR_DEFINITION;				See 10.7.1
-	int16_t				sensorRangeMaxValue;				// @ SENSOR_DEFINITION;				See 10.7.1
-	int16_t				sensorNormalMinValue;				// @ SENSOR_DEFINITION;				See 10.7.1
-	int16_t				sensorNormalMaxValue;				// @ SENSOR_DEFINITION;				See 10.7.1
-	uint8_t				sensorRecordedValueSupport;			// @ SENSOR_DEFINITION;				See 10.7.1
+	uint8_t				sensorType;						// @ SENSOR_DEFINITION;				See Table A-12
+	uint8_t				sensorUnit;						// @ SENSOR_DEFINITION;				See Table A-13
+	uint8_t				sensorPrefix;					// @ SENSOR_DEFINITION;				See Table A-14
+	int16_t				sensorRangeMinValue;			// @ SENSOR_DEFINITION;				See 10.7.1
+	int16_t				sensorRangeMaxValue;			// @ SENSOR_DEFINITION;				See 10.7.1
+	int16_t				sensorNormalMinValue;			// @ SENSOR_DEFINITION;				See 10.7.1
+	int16_t				sensorNormalMaxValue;			// @ SENSOR_DEFINITION;				See 10.7.1
+	uint8_t				sensorRecordedValueSupport;		// @ SENSOR_DEFINITION;				See 10.7.1
 	
 	// DMX Parameters
-	uint16_t			dmxFootprint;						// @ DEVICE_INFO;					Number of DMX512 Slots, see 10.5.1
-	uint16_t			dmxPersonality;						// @ DEVICE_INFO, DMX_PERSONALITY;	High-Byte: current Personality; Low-Byte: available Personalities, see 10.5.1
+	uint16_t			dmxFootprint;					// @ DEVICE_INFO;					Number of DMX512 Slots, see 10.5.1
+	uint16_t			dmxPersonality;					// @ DEVICE_INFO, DMX_PERSONALITY;	High-Byte: current Personality; Low-Byte: available Personalities, see 10.5.1
 	
-	uint8_t				slot0Type;							// @ SLOT_INFO;						Information about DMX512 Slots, see 10.6.4 and Table C-1, C-2
+	uint8_t				slot0Type;						// @ SLOT_INFO;						Information about DMX512 Slots, see 10.6.4 and Table C-1, C-2
 	uint16_t			slot0LabelID;
 	uint8_t				slot1Type;							
 	uint16_t			slot1LabelID;

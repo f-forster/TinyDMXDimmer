@@ -4,10 +4,9 @@
  * Implementation of Production specific Data
  *
  * Created: 10.08.2016 11:15:43
- *  Author: Franz
+ * Author: Franz
  */ 
 
-// #include <avr/eeprom.h>
 
 #ifndef PRODUCTION_INFORMATION_H_
 #define PRODUCTION_INFORMATION_H_
@@ -45,11 +44,11 @@ tProductionInformation eeProductionInformation EEM_PRODUCTION_INFO_DATA = {
 		0x55,				// Minute
 		0xAA				// Second
 	},
-	280,
+	280,					// Temperature Offset
 	0x5555,					// Test Result
 	0xAAAA,					// Test Version
 	"<No Test Comment>"		// Test Comment
 };
 
 
-#endif /* PRODUCTION_INFORMATION_H_ */
+#endif 

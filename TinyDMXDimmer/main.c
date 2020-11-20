@@ -32,45 +32,14 @@
 
 
 
-
-
-
-
-
-
-// #define GPIOR1_rdmResponseMDBLength			GPIOR1
-
-
-
-#define low(x)   ((x) & 0xFF)
-#define high(x)   (((x)>>8) & 0xFF)
-
-// #define EEM_OPERATION_INFO_DATA		__attribute__ ((section (".ee_operation_information_section")))
-
-
 // ----------------------------------------------------------------------------
 // Prototypes
 // ----------------------------------------------------------------------------
 
-void			InitDevice();				
-		
-			
-void			ReportError(const uint8_t);	// Process an Error-Ringbuffer
-void			ProcessDMXValues();			// Write received DMX-Values into PWM-Registers
-void			ProcessRDMMessage();		// Evaluate received RDM Message and send Response
-
-/*
-void			ReadStrToTransmitBuffer( const uint8_t aSrcStr[], uint8_t srcStrSize);
-void			ReadByteToTransmitBuffer( const uint8_t *aSrcByte);
-void			ReadRamByteToTransmitBuffer( uint8_t SrcByte);
-void			ReadWordToTransmitBuffer( const uint16_t *aSrcWord);
-void			ReadSignedWordToTransmitBuffer( const int16_t *aSrcWord);
-void			ReadRamWordToTransmitBuffer( uint16_t srcWord);
-void			ReadDWordToTransmitBuffer( const uint32_t *aSrcDWord);
-void			ReadRamDWordToTransmitBuffer( uint32_t SrcDWord);
-*/
-
-int16_t			ReadCurrentTemperature();
+void		InitDevice(void);				
+void		ProcessDMXValues(void);
+void		StartResetPulseTimer(void);
+int16_t		ReadCurrentTemperature();
 
 ISR (USART0_RX_vect);		// UART Receive ISR
 ISR (TIMER0_OVF_vect);		// Timer0 Overflow ISR
@@ -86,7 +55,6 @@ ISR (TIMER0_COMPA_vect);
 // Declarations
 // ----------------------------------------------------------------------------
 
-// Unspecified
 extern const	uint16_t aPwmValueTable[] PROGMEM;
 
 
@@ -96,39 +64,24 @@ extern const	uint16_t aPwmValueTable[] PROGMEM;
 
 int main(void)
 {
-	tRdmUID thisRdmUID;
+	tuRdmUID thisRdmUID;
 	uint16_t dmxAddr;
 	
-	InitDevice();
-
 	thisRdmUID.deviceID = 0xbc9a7856;
 	thisRdmUID.manufacturerID = 0x3412;
+	dmxAddr = 1;
 	
-	// DMX Start-Address
-	dmxAddr = 5;
-
-
-	InitTinyDMX(&thisRdmUID, dmxAddr);
-
-
-
-
+	InitDevice();
+	InitTinyDMX(&thisRdmUID, dmxAddr, StartResetPulseTimer);
 
 	sei();
 
 	while(1) {
 		
-
 		asm volatile ("nop");
-		
-		if (GetSatus() & RDM_DATA_READY_FOR_PROCESS) {
-			// Transmit Buffer is free to use
-			ProcessRDMMessage();
-		}
 		if (GetSatus() & DMX_DATA_READY_FOR_PROCESS) {
-			
 			ProcessDMXValues();
-			asm volatile ("nop"); // temp
+			asm volatile ("nop");
 		}
 	}
 }
@@ -137,7 +90,7 @@ int main(void)
 
 void ProcessDMXValues()
 {	
-	tRgbwColor* outputColor = (tRgbwColor*)GetDMXValues();;
+	tRgbwColor* outputColor = (tRgbwColor*)GetDMXValues();
 	
 	if (outputColor->r == 0) {
 		TOCPMCOE &= ~TOCCER;												// Disable Output Mux (pull pin low)
@@ -165,451 +118,33 @@ void ProcessDMXValues()
 	}
 }
 
-// ------------------------------------------------------------------------------------------------------------------------
 
-
-void ProcessRDMMessage()
-{
-	
-	
-	/*
-	
-	cli();
-	
-	// --------------------------------------------------
-	// Definitions:
-	uint8_t			GPIOR1_rdmResponseMDBLength = 0;
-
-	// Input and Output Packet:
-	
-
-	// --------------------------------------------------
-	// Composing Response
-	rdmTransmitBuffer.StartCode = SC_RDM;
-	rdmTransmitBuffer.SubStartCode = SC_SUB_MESSAGE;
-	rdmTransmitBuffer.DestinationUID = rdmReceiveBuffer.SourceUID;
-	rdmTransmitBuffer.SourceUID = rdmUID;
-	rdmTransmitBuffer.TransactionNumber = rdmReceiveBuffer.TransactionNumber;
-	rdmTransmitBuffer.PortID_ResponseType = RESPONSE_TYPE_ACK;
-	rdmTransmitBuffer.MessageCount = 0;
-	rdmTransmitBuffer.SubDevice = 0;
-	rdmTransmitBuffer.ParameterID = rdmReceiveBuffer.ParameterID;
-	
-	// --------------------------------------------------
-	// Message Check:
-	if (rdmReceiveBuffer.PortID_ResponseType != 0x01 || rdmReceiveBuffer.SubDevice != 0)
-	{
-		// Wrong Port ID
-		rdmTransmitBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
-		rdmTransmitBuffer.ParameterData[0] = high(NR_SUB_DEVICE_OUT_OF_RANGE);
-		rdmTransmitBuffer.ParameterData[1] = low(NR_SUB_DEVICE_OUT_OF_RANGE);
-		GPIOR1_rdmResponseMDBLength = 2;
-	}
-	else
-	{
-		// --------------------------------------------------
-		if (rdmReceiveBuffer.CommandClass == DISCOVERY_COMMAND)
-		{
-			// Set Command Class
-			rdmTransmitBuffer.CommandClass = DISCOVERY_COMMAND_RESPONSE;
-			
-			
-		}
-		else
-		{
-			if (rdmReceiveBuffer.CommandClass == GET_COMMAND)
-			{
-				// Set Command Class
-				rdmTransmitBuffer.CommandClass = GET_COMMAND_RESPONSE;
-				
-				// All Commands supporting GET_COMMAND
-				switch (rdmReceiveBuffer.ParameterID)
-				{
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case DEVICE_INFO:
-					// RDM Protocol Version (16 Bit)
-					// Device Model ID (16 Bit)
-					// Product Category (16 Bit)
-					// Software Version ID (32 Bit)
-					// DMX 512 Footprint (16 Bit)
-					// DMX 512 Personality (16 Bit)
-					// DMX 512 Start Address (16 Bit)
-					// Subdevice Count (16 Bit)
-					// Sensor Count (8 Bit)
-					// Size: 0x13
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.rdmProtocolVersion));
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.deviceModelID));
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.productCategory));
-					ReadDWordToTransmitBuffer(  &(aDeviceInformation.softwareVersionID));
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.dmxFootprint));
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.dmxPersonality));
-					ReadRamWordToTransmitBuffer(  dmxStartAddress);
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.subDeviceCount));
-					ReadByteToTransmitBuffer(  &(aDeviceInformation.sensorCount));
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case PRODUCT_DETAIL_ID_LIST:
-					// Product Detail ID (16 Bit)
-					// Size: 0x02
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.productDetailIDList));
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case DEVICE_MODEL_DESCRIPTION:
-					// Device Model description (Str)
-					// Size: variable
-					ReadStrToTransmitBuffer(  aStrDeviceModelDescription, sizeof(aStrDeviceModelDescription));
-
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case MANUFACTURER_LABEL:
-					// Manufacturer Label (Str)
-					// Size: variable
-					ReadStrToTransmitBuffer(  aStrManufacturerLabel, sizeof(aStrManufacturerLabel));
-
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case DEVICE_LABEL:
-					// Device Label (Str)
-					// Size: variable
-					ReadStrToTransmitBuffer(  aStrDeviceLabel, sizeof(aStrDeviceLabel));
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case SOFTWARE_VERSION_LABEL:
-					// Software Version Label (Str)
-					// Size: variable
-					ReadStrToTransmitBuffer(  aStrSoftwareVersionLabel, sizeof(aStrSoftwareVersionLabel));
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case DMX_PERSONALITY:
-					// Current Personality (8 Bit)
-					// Number of Personalities (8 Bit)
-					// Size: 0x02
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.dmxPersonality));
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case DMX_PERSONALITY_DESCRIPTION:
-					// PD: Number of Personality requested
-					// Personality Requestet (8 Bit)
-					// Number of DMX 512 Slots (16 Bit)
-					// Variable Text Description (Str)
-					// Size: variable
-					if (rdmReceiveBuffer.ParameterData[RDM_INPUT_DATA_BUFFER_SIZE-2] == 1) {
-						ReadByteToTransmitBuffer(  (const uint8_t*)&(aDeviceInformation.dmxPersonality));
-						ReadWordToTransmitBuffer(  &(aDeviceInformation.dmxFootprint));
-						ReadStrToTransmitBuffer(  aStrDmxPersonalityDescription, sizeof(aStrDmxPersonalityDescription));
-						} else {
-						ReadStrToTransmitBuffer(  aStrWrongRequest, sizeof(aStrWrongRequest));
-					}
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case DMX_START_ADDRESS:
-					// DMX512 Stard Address (16 Bit)
-					// Size: 0x02
-					ReadRamWordToTransmitBuffer(  dmxStartAddress);
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case SLOT_INFO:
-					// Slot Nuber (0 - 3) (16 Bit)
-					// Slot Type (8 Bit)
-					// Slot Label ID (16 Bit)
-					// Size: 5 * 4 = 20 Byte
-					ReadRamWordToTransmitBuffer(  0x0000);
-					ReadByteToTransmitBuffer(  &(aDeviceInformation.slot0Type));
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.slot0LabelID));
-					ReadRamWordToTransmitBuffer(  0x0000);
-					ReadByteToTransmitBuffer(  &(aDeviceInformation.slot1Type));
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.slot1LabelID));
-					ReadRamWordToTransmitBuffer(  0x0000);
-					ReadByteToTransmitBuffer(  &(aDeviceInformation.slot2Type));
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.slot2LabelID));
-					ReadRamWordToTransmitBuffer(  0x0000);
-					ReadByteToTransmitBuffer(  &(aDeviceInformation.slot3Type));
-					ReadWordToTransmitBuffer(  &(aDeviceInformation.slot3LabelID));
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case SLOT_DESCRIPTION:
-					// PD: Number of Slot requested
-					// Slot Requested (16 Bit)
-					// Slot Description Label (Str)
-					// Size: variable
-					ReadRamWordToTransmitBuffer(  rdmReceiveBuffer.ParameterData[RDM_INPUT_DATA_BUFFER_SIZE-2]);
-					switch (rdmReceiveBuffer.ParameterData[RDM_INPUT_DATA_BUFFER_SIZE-2])
-					{
-						case 0:
-						ReadStrToTransmitBuffer(  aStrSlot0Descreption, sizeof(aStrSlot0Descreption));
-						break;
-						case 1:
-						ReadStrToTransmitBuffer(  aStrSlot1Descreption, sizeof(aStrSlot1Descreption));
-						break;
-						case 2:
-						ReadStrToTransmitBuffer(  aStrSlot2Descreption, sizeof(aStrSlot2Descreption));
-						break;
-						case 3:
-						ReadStrToTransmitBuffer(  aStrSlot3Descreption, sizeof(aStrSlot3Descreption));
-						break;
-						default:
-						ReadStrToTransmitBuffer(  aStrWrongRequest, sizeof(aStrWrongRequest));
-						break;
-					}
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case SENSOR_DEFINITION:
-					// PD: Number of Sensor requested
-					// Sensor Requested (8 Bit)
-					// Sensor Type (8 Bit)
-					// Sensor Unit (8 Bit)
-					// Sensor Prefix (8 Bit)
-					// Range Min Value (16 Bit)
-					// Range Max Value (16 Bit)
-					// Normal Min Value (16 Bit)
-					// Normal Max Value (16 Bit)
-					// Recorded Value Support (8 Bit)
-					// Description (Str)
-					// Size: 0x0D - 0x2D
-					if (rdmReceiveBuffer.ParameterData[RDM_INPUT_DATA_BUFFER_SIZE-1] == 1) {
-						ReadRamByteToTransmitBuffer(  0x01);
-						ReadByteToTransmitBuffer(  &(aDeviceInformation.sensorType));
-						ReadByteToTransmitBuffer(  &(aDeviceInformation.sensorUnit));
-						ReadByteToTransmitBuffer(  &(aDeviceInformation.sensorPrefix));
-						ReadSignedWordToTransmitBuffer(  &(aDeviceInformation.sensorRangeMinValue));
-						ReadSignedWordToTransmitBuffer(  &(aDeviceInformation.sensorRangeMaxValue));
-						ReadSignedWordToTransmitBuffer(  &(aDeviceInformation.sensorNormalMinValue));
-						ReadSignedWordToTransmitBuffer(  &(aDeviceInformation.sensorNormalMaxValue));
-						ReadByteToTransmitBuffer(  &(aDeviceInformation.sensorRecordedValueSupport));
-						ReadStrToTransmitBuffer(  aStrSensorDescription, sizeof(aStrSensorDescription));
-					}
-					else {
-						ReadStrToTransmitBuffer(  aStrWrongRequest, sizeof(aStrWrongRequest));
-					}
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case SENSOR_VALUE:
-					// Sensor Requested (8 Bit)
-					// Present Value (16 Bit)
-					// Highest Value (16 Bit) (Std 0)
-					// Lowest Value (16 Bit) (Std 0)
-					// Recorded Value (16 Bit) (Std 0)
-					// Size: 0x09
-					ReadRamByteToTransmitBuffer(  0x01);
-					ReadRamByteToTransmitBuffer(ReadCurrentTemperature()); // TODO: Testen...
-					ReadRamWordToTransmitBuffer(  0x0000);
-					ReadRamWordToTransmitBuffer(  0x0000);
-					ReadRamWordToTransmitBuffer(  0x0000);
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case DEVICE_HOURS:
-					// Device Hours (32 Bit)
-					// Size: 0x04
-					// TODO: report device hours
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case DEVICE_POWER_CYCLES:
-					// Device Power Cycles (32 Bit)
-					// Size: 0x04
-					// TODO: report power clycles
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case IDENTIFY_DEVICE:
-					// Identify Device State (8 Bit)
-					// Size 0x01
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case 0x8000: // TODO: Implement user def test data respond
-					// Device Production Test Data
-					// Size ???
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					// For other Commands Get is not allowed
-					case RESET_DEVICE:
-					// ERROR - Command Class Get not Allowed
-					rdmTransmitBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
-					rdmTransmitBuffer.ParameterData[0] = high(NR_UNSUPPORTED_COMMAND_CLASS);
-					rdmTransmitBuffer.ParameterData[1] = low(NR_UNSUPPORTED_COMMAND_CLASS);
-					GPIOR1_rdmResponseMDBLength = 2;
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					// Exception, unknown PID
-					default:
-					rdmTransmitBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
-					rdmTransmitBuffer.ParameterData[0] = high(NR_UNKNOWN_PID);
-					rdmTransmitBuffer.ParameterData[1] = low(NR_UNKNOWN_PID);
-					GPIOR1_rdmResponseMDBLength = 2;
-					break;
-					
-				} // End switch PID
-			}
-			else if (rdmReceiveBuffer.CommandClass == SET_COMMAND)
-			{
-				// Set Command Class
-				rdmTransmitBuffer.CommandClass = SET_COMMAND_RESPONSE;
-				
-				switch (rdmReceiveBuffer.ParameterID)
-				{
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case DMX_START_ADDRESS:
-					// Empty response
-					// -> Put DMX512 Address in EEPROM
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case IDENTIFY_DEVICE:
-					// Empty Response
-					// Set Identify State to recomended state
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					case RESET_DEVICE:
-					// Empty Response
-					// -> Invoke Reset (0x01 Warm Reset/0xFF Cold Reset)
-					
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					// For other Commands Set is not allowed
-					case DEVICE_INFO:
-					case PRODUCT_DETAIL_ID_LIST:
-					case DEVICE_MODEL_DESCRIPTION:
-					case MANUFACTURER_LABEL:
-					case DEVICE_LABEL:
-					case SOFTWARE_VERSION_LABEL:
-					case DMX_PERSONALITY:
-					case DMX_PERSONALITY_DESCRIPTION:
-					case SLOT_INFO:
-					case SLOT_DESCRIPTION:
-					case SENSOR_DEFINITION:
-					case SENSOR_VALUE:
-					case DEVICE_HOURS:
-					case DEVICE_POWER_CYCLES:
-					// ERROR - Command Class Set not Allowed
-					rdmTransmitBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
-					rdmTransmitBuffer.ParameterData[0] = high(NR_UNSUPPORTED_COMMAND_CLASS);
-					rdmTransmitBuffer.ParameterData[1] = low(NR_UNSUPPORTED_COMMAND_CLASS);
-					GPIOR1_rdmResponseMDBLength = 2;
-					break;
-					// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-					// Exception, unknown PID
-					default:
-					rdmTransmitBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
-					rdmTransmitBuffer.ParameterData[0] = high(NR_UNKNOWN_PID);
-					rdmTransmitBuffer.ParameterData[1] = low(NR_UNKNOWN_PID);
-					GPIOR1_rdmResponseMDBLength = 2;
-					break;
-					
-				} // End switch PID
-			} // End if/else Get/Set Command
-		} // End if/else Disc. Cmd
-	} // End if/else sub device id
-	
-	// Write Lengths
-	rdmTransmitBuffer.ParameterDataLength = GPIOR1_rdmResponseMDBLength;
-	rdmTransmitBuffer.MessageLength = GPIOR1_rdmResponseMDBLength + 24;
-	// TODO: Write Lengths & Calculate Checksum
-	
-	// --------------------------------------------------
-	// Now transmit the message
-	
-	// Finished
-	// --------------------------------------------------
-	dmxrdmDataProcessingStatus &= ~RDM_DATA_READY_FOR_PROCESS;						// Reset Data Ready
-	sei();
-	
-	
-	
-	
-	
-	*/
-}
-
-/*
-void ReadStrToTransmitBuffer( const uint8_t aSrcStr[], uint8_t srcStrSize)
-{
-	uint8_t stringReadIterator = 0;
-	uint8_t stringWriteIterator = GPIOR1_rdmResponseMDBLength;
-	GPIOR1_rdmResponseMDBLength += srcStrSize-1;		// Delete Null-termination
-	while (stringReadIterator <= srcStrSize-1) {
-		rdmTransmitBuffer.ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE - 1 - stringWriteIterator++] =
-		pgm_read_byte(&(aSrcStr[stringReadIterator++]));
-	}
-}
-
-
-void ReadByteToTransmitBuffer( const uint8_t *aSrcByte)
-{
-	GPIOR1_rdmResponseMDBLength += 1;	// sizeof Byte
-	rdmTransmitBuffer.ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE - GPIOR1_rdmResponseMDBLength] = pgm_read_byte(aSrcByte);
-}
-
-void ReadRamByteToTransmitBuffer( uint8_t SrcByte)
-{
-	GPIOR1_rdmResponseMDBLength += 1;	// sizeof Byte
-	rdmTransmitBuffer.ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE - GPIOR1_rdmResponseMDBLength] = SrcByte;
-}
-
-void ReadWordToTransmitBuffer( const uint16_t *aSrcWord)
-{
-	GPIOR1_rdmResponseMDBLength += 2;	// sizeof Word
-	*((uint16_t*)(&(rdmTransmitBuffer.ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE - GPIOR1_rdmResponseMDBLength]))) = pgm_read_word(aSrcWord);
-}
-
-void ReadSignedWordToTransmitBuffer( const int16_t *aSrcWord)
-{
-	GPIOR1_rdmResponseMDBLength += 2;	// sizeof Word
-	*((uint16_t*)(&(rdmTransmitBuffer.ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE - GPIOR1_rdmResponseMDBLength]))) = pgm_read_word(aSrcWord);
-}
-
-void ReadRamWordToTransmitBuffer( uint16_t srcWord)
-{
-	GPIOR1_rdmResponseMDBLength += 2;	// sizeof Word
-	*((uint16_t*)(&(rdmTransmitBuffer.ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE - GPIOR1_rdmResponseMDBLength]))) = srcWord;
-}
-
-void ReadDWordToTransmitBuffer( const uint32_t *aSrcDWord)
-{
-	GPIOR1_rdmResponseMDBLength += 4;	// sizeof DWord
-	*((uint32_t*)(&(rdmTransmitBuffer.ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE - GPIOR1_rdmResponseMDBLength]))) = pgm_read_dword(aSrcDWord);
-}
-
-void ReadRamDWordToTransmitBuffer( uint32_t SrcDWord)
-{
-	GPIOR1_rdmResponseMDBLength += 4;	// sizeof DWord
-	*((uint32_t*)(&(rdmTransmitBuffer.ParameterData[RDM_OUTPUT_DATA_BUFFER_SIZE - GPIOR1_rdmResponseMDBLength]))) = SrcDWord;
-}
-
-*/
-
-
-// ------------------------------------------------------------------------------------------------------------------------
 
 ISR (USART0_RX_vect)
 {
-	HandleUsartRx();
+	uint8_t  uartReceivedData = 1;
+	uint8_t	 uartReceiveStatus = 0;
+	uartReceiveStatus = UCSR0A;		// Stats must be read before Data (p. 171)
+	uartReceivedData = UDR0;
+	if (uartReceiveStatus & (1<<FE0)) {
+		// framing error
+		HandleUsartRx(USART_FRAMING_ERROR, uartReceivedData);
+	} else if (uartReceiveStatus & (1<<DOR0)) {
+		HandleUsartRx(USART_DATA_OVERRUN_ERROR, uartReceivedData);
+	} else {
+		HandleUsartRx(USART_NO_ERROR, uartReceivedData);
+	}
 }
 
-// ------------------------------------------------------------------------------------------------------------------------
+
 
 ISR(TIMER0_COMPA_vect)
 {
-	/*
-	if (dmxrdmReceiverStatus == DMX_VERIFY_RESET_LENGTH) {
-		dmxrdmReceiverStatus = DMX_RESET_LENGTH_OK;
-		
-	}
+	MinResetLengthReached();
 	TIMSK0 &= ~(1<<OCIE0A);
-	*/
 }
 
-// ------------------------------------------------------------------------------------------------------------------------
+
 
 ISR (TIMER0_OVF_vect)
 {
@@ -617,28 +152,28 @@ ISR (TIMER0_OVF_vect)
 	
 }
 
-// ------------------------------------------------------------------------------------------------------------------------
+
 
 ISR (PCINT0_vect)
 {
-	/*
-	if (dmxrdmReceiverStatus == DMX_RESET_LENGTH_OK) {
-		// Reset-pulse is ok -> ready to receive Data
-		dmxrdmReceiverStatus = DMX_RECEIVE_RESET;
-		
-		} else if (dmxrdmReceiverStatus == DMX_VERIFY_RESET_LENGTH) {
-		// Reset-pulse was too short
-		dmxrdmReceiverStatus = DMX_WAIT_FOR_RESET;
-		
-	}
-	*/
+	ResetPinChanged();
 	GIMSK &= ~(1<<PCIE0);
-	
+}
+
+void StartResetPulseTimer(void)
+{
+	// Loading Timer with data to verify minimum Reset-Pulse length of 88us
+	OCR0A = 41;					// = 45µs until Interrupt occurs TODO: Anpassen wenn sich Code VOR diesen Zeilen ändert
+	TCNT0 = 0;					// Timer counter value reset
+	TIFR0 |= (1<<OCF0A);		// Reset Timer0 compare interrupt flag
+	TIMSK0 |= (1<<OCIE0A);		// Timer0 compare interrupt enable
+	GIFR |= (1<<PCIF0);			// Enable Pin-Change Detector for rising edge at the end of Reset-Pulse
+	GIMSK |= (1<<PCIE0);		// Reset Pin-Change interrupt flag
 }
 
 
 
-int16_t ReadCurrentTemperature()
+int16_t ReadCurrentTemperature(void)
 {
 	ADCSRA &= ~((1<<ADATE) | (1<<ADIE));
 	ADCSRA |= (1<<ADEN) | (1<<ADSC);
@@ -648,6 +183,7 @@ int16_t ReadCurrentTemperature()
 	return tempTempterature; // offset?
 	// Todo: zugriff auf temp offset über RDM
 }
+
 
 
 void InitDevice(void)

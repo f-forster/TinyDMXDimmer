@@ -8,17 +8,15 @@
  */ 
 
 
-// #include <avr/pgmspace.h>
-#include "rdm_spec.h"
-
 
 #ifndef RDM_DEVICE_INFORMATION_H_
 #define RDM_DEVICE_INFORMATION_H_
 
+#include "rdm_protocol.h"
+
 
 #define PGM_DEVICE_INFO_TEXT __attribute__ ((section (".device_information_text_section")))
 #define PGM_DEVICE_INFO_DATA __attribute__ ((section (".device_information_section")))
-
 
 
 // Max 32 letters each text
@@ -65,7 +63,7 @@ const tDevice_Information aDeviceInformation PGM_DEVICE_INFO_DATA = { // Locatio
 	50,										// int16_t		Sensor Normal Max Value (signed)
 	0,										// uint8_t		Sensor Recorded Value Support
 								
-	0x0004,									// uint16_t		DMX Footprint
+	NUM_DMX_RECV_VALUES,					// uint16_t		DMX Footprint
 	0x0101,									// uint16_t		DMX Personality
 	
 		ST_PRIMARY,						// uint8_t 		Slot Type

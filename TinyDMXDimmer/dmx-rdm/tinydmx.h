@@ -12,18 +12,19 @@
 #include <inttypes.h>
 #include "rdm_protocol.h"
 
+// User adjustable
 #define NUM_DMX_RECV_VALUES				4
 
 // Constant Values
-#define RDM_INPUT_DATA_BUFFER_SIZE		72			// TODO: evtl anpassen wenn fertig
-#define RDM_OUTPUT_DATA_BUFFER_SIZE		72
-
-#define RDM_INPUT_BUFFER_LAST		RDM_INPUT_DATA_BUFFER_SIZE+23
-#define RDM_OUTPUT_BUFFER_LAST		RDM_OUTPUT_DATA_BUFFER_SIZE+23
-
 // DMX RDM status flags
 #define DMX_DATA_READY_FOR_PROCESS		(1<<0)
 #define RDM_DATA_READY_FOR_PROCESS		(1<<1)
+
+
+#define USART_NO_ERROR					0
+#define	USART_FRAMING_ERROR				(1<<0)
+#define	USART_DATA_OVERRUN_ERROR		(1<<1)
+
 
 
 typedef void (*pCallback_Function)(void);
@@ -37,13 +38,14 @@ typedef struct {
 
 
 
-void InitTinyDMX(tRdmUID *ownUID, uint16_t dmxAddr);
+void		InitTinyDMX(tuRdmUID *ownUID, uint16_t dmxAddr, pCallback_Function startResetPulseTimerCallback);
 
-uint8_t GetSatus(void);
+uint8_t		GetSatus(void);
+uint8_t*	GetDMXValues(void);
 
-uint8_t *GetDMXValues(void);
-
-void HandleUsartRx(void);
+uint8_t		HandleUsartRx(uint8_t usartRXErrors, uint8_t usartRxData);
+void		MinResetLengthReached(void);
+void		ResetPinChanged(void);
 
 
 
