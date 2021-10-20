@@ -2,6 +2,8 @@
  *
  * Created: 16.11.2020 20:02:55
  * Author : Franz Forster
+ *
+ * git push origin --all
  */ 
 
 // TODO: propper Configuration of Brown-out-Detect!
@@ -18,17 +20,16 @@
 // ----------------------------------------------------------------------------
 
 // PWM-Registers
-#define PWMR	OCR1A
-#define PWMW	OCR2A
-#define PWMG	OCR2B
-#define PWMB	OCR1B
+#define PWM1	OCR2B
+#define PWM2	OCR2A
+#define PWM3	OCR1B
+#define PWM4	OCR1A
 
 // Mux Enable
-#define TOCCER	(1<<TOCC7OE)
-#define TOCCEW	(1<<TOCC5OE)
-#define TOCCEG	(1<<TOCC4OE)
-#define TOCCEB	(1<<TOCC6OE)
-
+#define TOCCE_PWM1	(1<<TOCC4OE)
+#define TOCCE_PWM2	(1<<TOCC5OE)
+#define TOCCE_PWM3	(1<<TOCC6OE)
+#define TOCCE_PWM4	(1<<TOCC7OE)
 
 
 
@@ -93,28 +94,28 @@ void ProcessDMXValues()
 	tRgbwColor* outputColor = (tRgbwColor*)GetDMXValues();
 	
 	if (outputColor->r == 0) {
-		TOCPMCOE &= ~TOCCER;												// Disable Output Mux (pull pin low)
+		TOCPMCOE &= ~TOCCE_PWM4;											// Disable Output Mux (pull pin low)
 		} else {
-		PWMR = pgm_read_word(&aPwmValueTable[outputColor->r]);				// not inverted
-		TOCPMCOE |= TOCCER;													// Enable Output Mux (pin attached to timer)
+		PWM4 = pgm_read_word(&aPwmValueTable[outputColor->r]);				// not inverted
+		TOCPMCOE |= TOCCE_PWM4;												// Enable Output Mux (pin attached to timer)
 	}
 	if (outputColor->g == 0) {
-		TOCPMCOE &= ~TOCCEG;												// Disable Output Mux (pull pin low)
+		TOCPMCOE &= ~TOCCE_PWM1;												// Disable Output Mux (pull pin low)
 		} else {
-		PWMG = 0x3FFF- pgm_read_word(&aPwmValueTable[outputColor->g]);		// inverted
-		TOCPMCOE |= TOCCEG;													// Enable Output Mux (pin attached to timer)
+		PWM1 = 0x3FFF - pgm_read_word(&aPwmValueTable[outputColor->g]);			// inverted
+		TOCPMCOE |= TOCCE_PWM1;													// Enable Output Mux (pin attached to timer)
 	}
 	if (outputColor->b == 0) {
-		TOCPMCOE &= ~TOCCEB;												// Disable Output Mux (pull pin low)
+		TOCPMCOE &= ~TOCCE_PWM3;												// Disable Output Mux (pull pin low)
 		} else {
-		PWMB = 0x3FFF- pgm_read_word(&aPwmValueTable[outputColor->b]);		// inverted
-		TOCPMCOE |= TOCCEB;													// Enable Output Mux (pin attached to timer)
+		PWM3 = 0x3FFF - pgm_read_word(&aPwmValueTable[outputColor->b]);			// inverted
+		TOCPMCOE |= TOCCE_PWM3;													// Enable Output Mux (pin attached to timer)
 	}
 	if (outputColor->w == 0) {
-		TOCPMCOE &= ~TOCCEW;												// Disable Output Mux (pull pin low)
+		TOCPMCOE &= ~TOCCE_PWM2;												// Disable Output Mux (pull pin low)
 		} else {
-		PWMW = pgm_read_word(&aPwmValueTable[outputColor->w]);				// not inverted
-		TOCPMCOE |= TOCCEW;													// Enable Output Mux (pin attached to timer)
+		PWM2 = pgm_read_word(&aPwmValueTable[outputColor->w]);					// not inverted
+		TOCPMCOE |= TOCCE_PWM2;													// Enable Output Mux (pin attached to timer)
 	}
 }
 
