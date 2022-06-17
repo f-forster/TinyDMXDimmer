@@ -259,6 +259,7 @@ uint8_t _HandleRDMData(uint8_t data, uint16_t dataCounter)
 			} 
 			else 
 			{
+				dmxrdmReceiverState = DMX_WAIT_FOR_RESET;
 				return ERROR_RDM_WRONG_MESSAGE_CHECKSUM;
 			}
 			dmxrdmReceiverState = DMX_WAIT_FOR_RESET;
