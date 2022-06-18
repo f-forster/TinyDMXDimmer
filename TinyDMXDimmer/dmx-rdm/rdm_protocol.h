@@ -185,22 +185,25 @@ typedef union
 
 typedef struct // Size: 49 Bytes
 {
-	// UID
-	tuRdmUID	rdmUID;									// Unique ID for addressing as a RDM device
-	
 	// Hardware Parameters				
 	uint16_t			deviceModelID;					// @ DEVICE_INFO;					Device Model ID, determined by Manufacturer, see 10.5.1
 	uint16_t			productCategory;				// @ DEVICE_INFO;					Device Category, see 10.5.1 and table A-5
 	uint16_t			productDetailIDList;			// @ PRODUCT_DETAIL_ID_LIST;		Detaild produt info, see Table A-6, CURRENTLY only one Detail used!
 	uint8_t				sensorCount;					// @ DEVICE_INFO;					Number of Sensors, see 10.5.1
-	uint16_t			subDeviceCount;					// @ DEVICE_INFO;					Number of Sub-Devices, see 10.5.1
-
+	uint8_t				slotCount;
 
 	// Software Parameters
-	uint16_t			rdmProtocolVersion;				// @ DEVICE_INFO;					Implemented RDM Protocol Version, see 10.5.1
 	uint32_t			softwareVersionID;				// @ DEVICE_INFO;					ID of Software Version, see 10.5.1
+	
+	// DMX Parameters
+	uint16_t			dmxFootprint;					// @ DEVICE_INFO;					Number of DMX512 Slots, see 10.5.1
+	uint16_t			dmxPersonality;					// @ DEVICE_INFO, DMX_PERSONALITY;	High-Byte: current Personality; Low-Byte: available Personalities, see 10.5.1
+	
+} tDevice_Information;
 
 
+
+typedef struct {
 	// Sensor Parameters, see 10.7.1
 	uint8_t				sensorType;						// @ SENSOR_DEFINITION;				See Table A-12
 	uint8_t				sensorUnit;						// @ SENSOR_DEFINITION;				See Table A-13
@@ -210,23 +213,13 @@ typedef struct // Size: 49 Bytes
 	int16_t				sensorNormalMinValue;			// @ SENSOR_DEFINITION;				See 10.7.1
 	int16_t				sensorNormalMaxValue;			// @ SENSOR_DEFINITION;				See 10.7.1
 	uint8_t				sensorRecordedValueSupport;		// @ SENSOR_DEFINITION;				See 10.7.1
-	
-	// DMX Parameters
-	uint16_t			dmxFootprint;					// @ DEVICE_INFO;					Number of DMX512 Slots, see 10.5.1
-	uint16_t			dmxPersonality;					// @ DEVICE_INFO, DMX_PERSONALITY;	High-Byte: current Personality; Low-Byte: available Personalities, see 10.5.1
-	
-	uint8_t				slot0Type;						// @ SLOT_INFO;						Information about DMX512 Slots, see 10.6.4 and Table C-1, C-2
-	uint16_t			slot0LabelID;
-	uint8_t				slot1Type;							
-	uint16_t			slot1LabelID;
-	uint8_t				slot2Type;
-	uint16_t			slot2LabelID;
-	uint8_t				slot3Type;
-	uint16_t			slot3LabelID;
 
-	
-} tDevice_Information;
+} tSensor_Information;
 
+typedef struct {
+	uint8_t				slotType;		// @ SLOT_INFO;						Information about DMX512 Slots, see 10.6.4 and Table C-1, C-2
+	uint16_t			slotLabelID;
+} tSlot_Information;
 
 
 #endif /* DMXRDM-RESPONDER_H_ */

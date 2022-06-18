@@ -26,58 +26,67 @@ const uint8_t aStrDeviceModelDescription[] PGM_DEVICE_INFO_TEXT = "Hallo";					/
 const uint8_t aStrSoftwareVersionLabel[] PGM_DEVICE_INFO_TEXT = "Hallo";					// @ SOFTWARE_VERSION_LABEL			Label of Software version
 const uint8_t aStrSensorDescription[] PGM_DEVICE_INFO_TEXT = "Hallo";						// @ SENSOR_DEFINITION;				See 10.7.1
 const uint8_t aStrDmxPersonalityDescription[] PGM_DEVICE_INFO_TEXT = "Hallo";				// @ DMX_PERSONALITY_DESCRIPTION;	Personality Description, see 10.6.2
-
-// Max 32 letters each text
-const uint8_t aStrSlot0Descreption [] PGM_DEVICE_INFO_TEXT = "Additive Color Mixer - Red";
-const uint8_t aStrSlot1Descreption [] PGM_DEVICE_INFO_TEXT = "Additive Color Mixer - Green";
-const uint8_t aStrSlot2Descreption [] PGM_DEVICE_INFO_TEXT = "Additive Color Mixer - Blue";
-const uint8_t aStrSlot3Descreption [] PGM_DEVICE_INFO_TEXT = "Additive Color Mixer - White";
 const uint8_t aStrWrongRequest [] PGM_DEVICE_INFO_TEXT = "Requested not known!";
-
 
 
 const tDevice_Information aDeviceInformation PGM_DEVICE_INFO_DATA = { // Location: 0x0F00 (Word Address)
 													
-	{										// RDM UID
-		{ 
-			0x3412,							// Manufacturer ID
-			0xbc9a7856						// Device UID	
-		}							
-	},
-	
 	0x0001,									// uint16_t		Device Model ID
 	PRODUCT_CATEGORY_FIXTURE_FIXED,			// uint16_t		Product Category
 	PRODUCT_DETAIL_LED,						// uint16_t		Product Detail ID 
 	0x01,									// uint8_t		Sensor Count
 	0x00,									// uint16_t		Sub Device Count
-								
-	0x0001,									// uint16_t		RDM Protocol Version
+	0x04,									// uint8_t		Slot Count
+
 	0x00000001,								// uint32_t		Software Version ID
-								
-	SENS_TEMPERATURE,						// uint8_t		Sensor Type
-	UNITS_CENTIGRADE,						// uint8_t		Sensor Unit
-	PREFIX_NONE,							// uint8_t		Sensor Prefix
-	-20,									// int16_t		Sensor Range Min Value (signed)
-	80,										// int16_t		Sensor Range Max Value (signed)
-	0,										// int16_t		Sensor Normal Min Value (signed)
-	50,										// int16_t		Sensor Normal Max Value (signed)
-	0,										// uint8_t		Sensor Recorded Value Support
-								
+
 	NUM_DMX_RECV_VALUES,					// uint16_t		DMX Footprint
-	0x0101,									// uint16_t		DMX Personality
-	
-		ST_PRIMARY,						// uint8_t 		Slot Type
-		SD_COLOR_ADD_RED,				// uint16_t		Slot Label ID
+	0x0101									// uint16_t		DMX Personality
 
-		ST_PRIMARY,						// uint8_t 		Slot Type
-		SD_COLOR_ADD_GREEN,				// uint16_t		Slot Label ID
+};
 
-		ST_PRIMARY,						// uint8_t 		Slot Type
-		SD_COLOR_ADD_BLUE,				// uint16_t		Slot Label ID
 
-		ST_PRIMARY,						// uint8_t 		Slot Type
-		0x8000,							// uint16_t		Slot Label ID (User Defined)
+const tSensor_Information aTempSensors[] PGM_DEVICE_INFO_DATA = {
+	{
+		SENS_TEMPERATURE,						// uint8_t		Sensor Type
+		UNITS_CENTIGRADE,						// uint8_t		Sensor Unit
+		PREFIX_NONE,							// uint8_t		Sensor Prefix
+		-20,									// int16_t		Sensor Range Min Value (signed)
+		80,										// int16_t		Sensor Range Max Value (signed)
+		0,										// int16_t		Sensor Normal Min Value (signed)
+		50,										// int16_t		Sensor Normal Max Value (signed)
+		0										// uint8_t		Sensor Recorded Value Support
+	},
+	{
+		SENS_TEMPERATURE,						// uint8_t		Sensor Type
+		UNITS_CENTIGRADE,						// uint8_t		Sensor Unit
+		PREFIX_NONE,							// uint8_t		Sensor Prefix
+		-20,									// int16_t		Sensor Range Min Value (signed)
+		80,										// int16_t		Sensor Range Max Value (signed)
+		0,										// int16_t		Sensor Normal Min Value (signed)
+		50,										// int16_t		Sensor Normal Max Value (signed)
+		0										// uint8_t		Sensor Recorded Value Support
+	}
+};
 
+
+const tSlot_Information aDeviceSlots[] PGM_DEVICE_INFO_DATA = {
+	{
+		ST_PRIMARY,				// uint8_t 		Slot Type
+		SD_COLOR_ADD_RED		// uint16_t		Slot Label ID
+	},
+	{
+		ST_PRIMARY,				// uint8_t 		Slot Type
+		SD_COLOR_ADD_GREEN		// uint16_t		Slot Label ID
+	},
+	{
+		ST_PRIMARY,				// uint8_t 		Slot Type
+		SD_COLOR_ADD_BLUE		// uint16_t		Slot Label ID
+	},
+	{
+		ST_PRIMARY,				// uint8_t 		Slot Type
+		0x8000					// uint16_t		Slot Label ID
+	}
 };
 
 
