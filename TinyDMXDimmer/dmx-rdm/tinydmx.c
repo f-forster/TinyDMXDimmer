@@ -10,6 +10,8 @@
 #include "rdm_protocol.h"
 
 
+#define WRD_LOW(x)   ((x) & 0xFF)
+#define WRD_HIGH(x)  (((x)>>8) & 0xFF)
 
 // DMX receiver state machine
 #define DMX_WAIT_FOR_RESET			1
@@ -46,6 +48,8 @@ static			uint8_t dmxReceiveBuffer[NUM_DMX_RECV_VALUES];
 
 static			uint16_t rdmPacketReceiveChecksum = 0;
 static			tuRdmInputPacket rdmReceiveBuffer;
+static			uint16_t rdmPacketTransmitChecksum = 0;
+static			tuRdmOutputPacket rdmTransmitBuffer;
 
 static			pCallback_Function _StartResetPulseTimerCb;
 
@@ -306,6 +310,36 @@ void _RDMInputBufferPush(uint8_t data, uint16_t dataCounter)
 	rdmPacketReceiveChecksum += data;
 }
 
+
+
+void _RDMOutputBufferPush_Byte(uint8_t data, uint16_t *dataCounter)
+{
+	rdmReceiveBuffer.bytes[RDM_OUTPUT_BUFFER_LAST-(*dataCounter)] = data;
+	*dataCounter += 1;
+	rdmPacketReceiveChecksum += data;
+}
+
+void _RDMOutputBufferPush_Word(uint16_t data, uint16_t *dataCounter)
+{
+	_RDMOutputBufferPush_Byte(WRD_LOW(data), dataCounter);
+	_RDMOutputBufferPush_Byte(WRD_HIGH(data), dataCounter);
+}
+
+void _RDMOutputBufferPush_DWord(uint32_t data, uint16_t *dataCounter)
+{
+	_RDMOutputBufferPush_Byte((data & 0xFF), dataCounter);
+	_RDMOutputBufferPush_Byte(((data>>8) & 0xFF), dataCounter);
+	_RDMOutputBufferPush_Byte(((data>>16) & 0xFF), dataCounter);
+	_RDMOutputBufferPush_Byte(((data>>24) & 0xFF), dataCounter);
+}
+
+void _RDMOutputBufferPush_PGMStr(const uint8_t *aStr, uint8_t strLength, uint16_t *dataCounter)
+{
+	uint8_t stringIt = 0;
+	for (stringIt = 0; stringIt < strLength; strLength++) {
+		_RDMOutputBufferPush_Byte(pgm_read_byte(&(aStr[stringIt++])), dataCounter);
+	}
+}
 
 
 uint16_t _RDMInputBufferGetChecksum(void)
