@@ -5,6 +5,7 @@
  *  Author: Franz Forster
  */ 
 
+#include <avr/pgmspace.h>
 #include "tinydmx.h"
 #include "rdm_protocol.h"
 
@@ -50,6 +51,10 @@ static			pCallback_Function _StartResetPulseTimerCb;
 
 
 
+uint8_t		_ReadPGM_Byte (const uint8_t* addr);
+uint16_t	_ReadPGM_Word (const uint16_t* addr);
+uint32_t	_ReadPGM_DWord (const uint32_t* addr);
+
 void		_RDMInputBufferReset(void);
 void		_RDMInputBufferPush(uint8_t data, uint16_t dataCounter);
 uint16_t	_RDMInputBufferGetChecksum(void);
@@ -86,6 +91,24 @@ uint8_t* GetDMXValues(void)
 {
 	dmxrdmDataProcessingState &= ~(DMX_DATA_READY_FOR_PROCESS);
 	return dmxReceiveBuffer;
+}
+
+
+
+// Wrapper for pgm_read functions
+uint8_t _ReadPGM_Byte (const uint8_t* addr)
+{
+	return pgm_read_byte(addr);
+}
+
+uint16_t _ReadPGM_Word (const uint16_t* addr)
+{
+	return pgm_read_word(addr);
+}
+
+uint32_t _ReadPGM_DWord (const uint32_t* addr)
+{
+	return pgm_read_dword(addr);
 }
 
 
