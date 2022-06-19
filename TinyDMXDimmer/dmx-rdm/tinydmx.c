@@ -8,6 +8,7 @@
 #include <avr/pgmspace.h>
 #include "tinydmx.h"
 #include "rdm_protocol.h"
+#include "rdm_device_info.h"
 
 
 #define WRD_LOW(x)   ((x) & 0xFF)
@@ -36,6 +37,16 @@
 #define ERROR_RDM_UNKNOWN_SUB_STARTCODE		8
 #define ERROR_RDM_WRONG_MESSAGE_CHECKSUM	9
 #define ERROR_RDM_DATA_OVERRUN				10
+
+
+
+extern const uint8_t aStrManufacturerLabel[];
+extern const uint8_t aStrDeviceLabel[];
+extern const uint8_t aStrDeviceModelDescription[];
+extern const uint8_t aStrSoftwareVersionLabel[];
+extern const uint8_t aStrSensorDescription[];
+extern const uint8_t aStrDmxPersonalityDescription[];
+extern const uint8_t aStrWrongRequest [];
 
 
 

@@ -35,7 +35,6 @@ const tDevice_Information aDeviceInformation PGM_DEVICE_INFO_DATA = { // Locatio
 	PRODUCT_CATEGORY_FIXTURE_FIXED,			// uint16_t		Product Category
 	PRODUCT_DETAIL_LED,						// uint16_t		Product Detail ID 
 	0x01,									// uint8_t		Sensor Count
-	0x00,									// uint16_t		Sub Device Count
 	0x04,									// uint8_t		Slot Count
 
 	0x00000001,								// uint32_t		Software Version ID
