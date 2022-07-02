@@ -28,14 +28,16 @@ const uint8_t aStrSensorDescription[] PGM_DEVICE_INFO_TEXT = "Hallo";						// @ 
 const uint8_t aStrDmxPersonalityDescription[] PGM_DEVICE_INFO_TEXT = "Hallo";				// @ DMX_PERSONALITY_DESCRIPTION;	Personality Description, see 10.6.2
 const uint8_t aStrWrongRequest [] PGM_DEVICE_INFO_TEXT = "Requested not known!";
 
+#define DEVICE_SENSOR_NUM	0x02
+#define DEVICE_SLOT_NUM		0x04
 
-const tDevice_Information aDeviceInformation PGM_DEVICE_INFO_DATA = { // Location: 0x0F00 (Word Address)
+const tDevice_Information aDeviceInfo PGM_DEVICE_INFO_DATA = { // Location: 0x0F00 (Word Address)
 													
 	0x0001,									// uint16_t		Device Model ID
 	PRODUCT_CATEGORY_FIXTURE_FIXED,			// uint16_t		Product Category
 	PRODUCT_DETAIL_LED,						// uint16_t		Product Detail ID 
-	0x01,									// uint8_t		Sensor Count
-	0x04,									// uint8_t		Slot Count
+	DEVICE_SENSOR_NUM,						// uint8_t		Sensor Count
+	DEVICE_SLOT_NUM,						// uint8_t		Slot Count
 
 	0x00000001,								// uint32_t		Software Version ID
 

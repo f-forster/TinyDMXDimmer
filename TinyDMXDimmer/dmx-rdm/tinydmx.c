@@ -5,7 +5,6 @@
  *  Author: Franz Forster
  */ 
 
-#include <avr/pgmspace.h>
 #include "tinydmx.h"
 #include "rdm_protocol.h"
 #include "rdm_device_info.h"
@@ -38,8 +37,13 @@
 #define ERROR_RDM_WRONG_MESSAGE_CHECKSUM	9
 #define ERROR_RDM_DATA_OVERRUN				10
 
+// RDM response message types
+#define RDM_NORMAL_RESPONSE			0
+#define RDM_NO_RESPONSE				1
+#define RDM_RESPONSE_NO_RESET		2
 
 
+// Device definition from rdm_device_info.h
 extern const uint8_t aStrManufacturerLabel[];
 extern const uint8_t aStrDeviceLabel[];
 extern const uint8_t aStrDeviceModelDescription[];
@@ -47,7 +51,9 @@ extern const uint8_t aStrSoftwareVersionLabel[];
 extern const uint8_t aStrSensorDescription[];
 extern const uint8_t aStrDmxPersonalityDescription[];
 extern const uint8_t aStrWrongRequest [];
-
+extern const tDevice_Information aDeviceInfo;
+extern const tSensor_Information aTempSensors[];
+extern const tSlot_Information aDeviceSlots[];
 
 
 static			tuRdmUID *rdmUID;
@@ -55,34 +61,33 @@ static			uint16_t dmx512ListenAddr;
 
 static volatile	uint8_t dmxrdmReceiverState = 0;
 static volatile	uint8_t dmxrdmDataProcessingState = 0;
-static			uint8_t dmxReceiveBuffer[NUM_DMX_RECV_VALUES];
-
-static			uint16_t rdmPacketReceiveChecksum = 0;
-static			tuRdmInputPacket rdmReceiveBuffer;
-static			uint16_t rdmPacketTransmitChecksum = 0;
-static			tuRdmOutputPacket rdmTransmitBuffer;
-
-static			pCallback_Function _StartResetPulseTimerCb;
+static			uint8_t dmxValueRxBuffer[NUM_DMX_RECV_VALUES];
 
 
+static			uint8_t rxPacketIndex = 0;
+static			uint16_t rdmPacketRxChecksum = 0;
+static			tuRdmInputPacket rdmPacketRxBuffer;
+// static			uint8_t txPacketIndex = 0;
+static			uint16_t rdmPacketTxChecksum = 0;
+static			tuRdmOutputPacket rdmPacketTxBuffer;
 
-uint8_t		_ReadPGM_Byte (const uint8_t* addr);
-uint16_t	_ReadPGM_Word (const uint16_t* addr);
-uint32_t	_ReadPGM_DWord (const uint32_t* addr);
 
-void		_RDMInputBufferReset(void);
-void		_RDMInputBufferPush(uint8_t data, uint16_t dataCounter);
-uint16_t	_RDMInputBufferGetChecksum(void);
+
+
+void		_RDMResetRxBuffer(void);
+void		_RDMPutRxBuffer_Byte(uint8_t data);
 
 void		_HandleDMXData(uint8_t data, uint16_t dataCounter);
 uint8_t		_HandleRDMData(uint8_t data, uint16_t dataCounter);
 
-uint8_t		_evaluateRDMReqest();
+void		_RDMResetTxBuffer(void);
+void		_RDMPutTxParam_Byte(uint8_t data);
+void		_RDMPutTxParam_Word(uint16_t data);
+void		_RDMPutTxParam_DWord(uint32_t data);
+void		_RDMPutTxParam_PGMStr(const uint8_t *aStr, uint8_t strLength);
 
 
-
-
-void InitTinyDMX(tuRdmUID *ownUID, uint16_t dmxAddr, pCallback_Function startResetPulseTimerCallback)
+void InitTinyDMX(tuRdmUID *ownUID, uint16_t dmxAddr)
 {
 	if (dmxAddr < 1 || dmxAddr > DMX_512_MAX_CHANNEL_NR - NUM_DMX_RECV_VALUES) {
 		// Invalid StartAddress
@@ -91,7 +96,6 @@ void InitTinyDMX(tuRdmUID *ownUID, uint16_t dmxAddr, pCallback_Function startRes
 		dmx512ListenAddr = dmxAddr;
 	}
 	rdmUID = ownUID;
-	_StartResetPulseTimerCb = startResetPulseTimerCallback;
 }
 
 
@@ -106,25 +110,7 @@ uint8_t GetSatus(void)
 uint8_t* GetDMXValues(void)
 {
 	dmxrdmDataProcessingState &= ~(DMX_DATA_READY_FOR_PROCESS);
-	return dmxReceiveBuffer;
-}
-
-
-
-// Wrapper for pgm_read functions
-uint8_t _ReadPGM_Byte (const uint8_t* addr)
-{
-	return pgm_read_byte(addr);
-}
-
-uint16_t _ReadPGM_Word (const uint16_t* addr)
-{
-	return pgm_read_word(addr);
-}
-
-uint32_t _ReadPGM_DWord (const uint32_t* addr)
-{
-	return pgm_read_dword(addr);
+	return dmxValueRxBuffer;
 }
 
 
@@ -138,7 +124,7 @@ uint8_t HandleUsartRx(uint8_t usartRXErrors, uint8_t usartRxData)
 		if (usartRxData == 0) {
 			// Break detected ? Start time measurement
 			dmxrdmReceiverState = DMX_VERIFY_RESET_LENGTH;
-			_StartResetPulseTimerCb();
+			td_StartTimer();
 			uartReceiverCounter = 0;
 		}
 		else
@@ -177,8 +163,8 @@ uint8_t HandleUsartRx(uint8_t usartRXErrors, uint8_t usartRxData)
 				} else {
 					// RDM Startcode
 					dmxrdmReceiverState = DMX_RECEIVE_RDM_DATA;
-					_RDMInputBufferReset();
-					_RDMInputBufferPush(usartRxData, uartReceiverCounter);
+					_RDMResetRxBuffer();
+					_RDMPutRxBuffer_Byte(usartRxData);
 				}
 			}
 			else
@@ -231,7 +217,7 @@ void _HandleDMXData(uint8_t data, uint16_t incommingDataCounter)
 {
 	if (incommingDataCounter >= dmx512ListenAddr && incommingDataCounter < (dmx512ListenAddr + NUM_DMX_RECV_VALUES))
 	{
-		dmxReceiveBuffer[incommingDataCounter - dmx512ListenAddr] = data;
+		dmxValueRxBuffer[incommingDataCounter - dmx512ListenAddr] = data;
 		if (incommingDataCounter == (dmx512ListenAddr + NUM_DMX_RECV_VALUES - 1)) {
 			// last value received
 			dmxrdmDataProcessingState |= DMX_DATA_READY_FOR_PROCESS;
@@ -274,13 +260,13 @@ uint8_t _HandleRDMData(uint8_t data, uint16_t dataCounter)
 			return NO_ERROR;
 		}
 		// store byte when no error occoured
-		_RDMInputBufferPush(data, dataCounter);
+		_RDMPutRxBuffer_Byte(data);
 	} 
 	else 
 	{		
 		if (dataCounter < rdmReceivedMessageLength) 
 		{
-			_RDMInputBufferPush(data, dataCounter);
+			_RDMPutRxBuffer_Byte(data);
 		} 
 		else if (dataCounter == rdmReceivedMessageLength) 
 		{
@@ -292,15 +278,14 @@ uint8_t _HandleRDMData(uint8_t data, uint16_t dataCounter)
 			// checksum low byte received
 			rdmReceivedChecksum |= data & 0xFF;
 			dmxrdmReceiverState = DMX_WAIT_FOR_RESET;
-			if (rdmReceivedChecksum == _RDMInputBufferGetChecksum()) 
+			if (rdmReceivedChecksum == rdmPacketRxChecksum) 
 			{
 				// Checksum ok
-				// dmxrdmReceiverState |= RDM_DATA_READY_FOR_PROCESS;
-				return _evaluateRDMReqest();
+				dmxrdmReceiverState |= RDM_DATA_READY_FOR_PROCESS;
+				return NO_ERROR;
 			} 
 			else 
 			{
-				dmxrdmReceiverState = DMX_WAIT_FOR_RESET;
 				return ERROR_RDM_WRONG_MESSAGE_CHECKSUM;
 			}
 		}
@@ -310,70 +295,117 @@ uint8_t _HandleRDMData(uint8_t data, uint16_t dataCounter)
 
 
 
-void _RDMInputBufferReset(void)
+void _RDMResetRxBuffer(void)
 {
-	rdmPacketReceiveChecksum = 0;
+	rxPacketIndex = 0;
+	rdmPacketRxChecksum = 0;
 }
 
 
 
-void _RDMInputBufferPush(uint8_t data, uint16_t dataCounter)
+void _RDMPutRxBuffer_Byte(uint8_t data)
 {
-	rdmReceiveBuffer.bytes[RDM_INPUT_BUFFER_LAST-dataCounter] = data;
-	rdmPacketReceiveChecksum += data;
+	rdmPacketRxBuffer.bytes[RDM_INPUT_BUFFER_LAST-rxPacketIndex] = data;
+	rxPacketIndex++;
+	rdmPacketRxChecksum += data;
 }
 
 
 
-void _RDMOutputBufferPush_Byte(uint8_t data, uint16_t *dataCounter)
+void _RDMResetTxBuffer(void)
 {
-	rdmReceiveBuffer.bytes[RDM_OUTPUT_BUFFER_LAST-(*dataCounter)] = data;
-	*dataCounter += 1;
-	rdmPacketReceiveChecksum += data;
+	rdmPacketTxChecksum = 0;
+	rdmPacketTxBuffer.ParameterDataLength = 0;
+	rdmPacketTxBuffer.MessageLength = RDM_PACKET_BASE_SIZE;
 }
 
-void _RDMOutputBufferPush_Word(uint16_t data, uint16_t *dataCounter)
+void _RDMPutTxParam_Byte(uint8_t data)
 {
-	_RDMOutputBufferPush_Byte(WRD_LOW(data), dataCounter);
-	_RDMOutputBufferPush_Byte(WRD_HIGH(data), dataCounter);
+	uint8_t paramLen = rdmPacketTxBuffer.ParameterDataLength;
+	rdmPacketTxBuffer.ParameterData[RDM_OUTPUT_PARAM_BUFFER_SIZE-1-(paramLen)] = data;
+	++paramLen;
+	rdmPacketTxChecksum += data;
+	rdmPacketTxBuffer.ParameterDataLength = paramLen;
+	rdmPacketTxBuffer.MessageLength = paramLen + RDM_PACKET_BASE_SIZE;
 }
 
-void _RDMOutputBufferPush_DWord(uint32_t data, uint16_t *dataCounter)
+void _RDMPutTxParam_Word(uint16_t data)
 {
-	_RDMOutputBufferPush_Byte((data & 0xFF), dataCounter);
-	_RDMOutputBufferPush_Byte(((data>>8) & 0xFF), dataCounter);
-	_RDMOutputBufferPush_Byte(((data>>16) & 0xFF), dataCounter);
-	_RDMOutputBufferPush_Byte(((data>>24) & 0xFF), dataCounter);
+	_RDMPutTxParam_Byte(WRD_LOW(data));
+	_RDMPutTxParam_Byte(WRD_HIGH(data));
 }
 
-void _RDMOutputBufferPush_PGMStr(const uint8_t *aStr, uint8_t strLength, uint16_t *dataCounter)
+void _RDMPutTxParam_DWord(uint32_t data)
+{
+	_RDMPutTxParam_Byte((data & 0xFF));
+	_RDMPutTxParam_Byte(((data>>8) & 0xFF));
+	_RDMPutTxParam_Byte(((data>>16) & 0xFF));
+	_RDMPutTxParam_Byte(((data>>24) & 0xFF));
+}
+
+void _RDMPutTxParam_PGMStr(const uint8_t *aStr, uint8_t strLength)
 {
 	uint8_t stringIt = 0;
 	for (stringIt = 0; stringIt < strLength; strLength++) {
-		_RDMOutputBufferPush_Byte(pgm_read_byte(&(aStr[stringIt++])), dataCounter);
+		_RDMPutTxParam_Byte(td_ReadPGM_Byte(&(aStr[stringIt++])));
 	}
 }
 
 
-uint16_t _RDMInputBufferGetChecksum(void)
+
+uint8_t EvaluateRDMRequest(void)
 {
-	return rdmPacketReceiveChecksum;
-}
-
-
-
-uint8_t _evaluateRDMReqest(void)
-{
+	static uint8_t deviceIdentifyState = 0;
 	uint16_t dataIndex = 0;
+	uint8_t sensorIndex = 0;
+	uint16_t tmpValue = 0;
+	
+	uint8_t responseType = RDM_NORMAL_RESPONSE;
 
+	_RDMResetTxBuffer();
+	
+	rdmPacketTxBuffer.StartCode	= SC_RDM;
+	rdmPacketTxBuffer.SubStartCode = SC_SUB_MESSAGE;
+	rdmPacketTxBuffer.DestinationUID = rdmPacketRxBuffer.SourceUID;
+	rdmPacketTxBuffer.SourceUID = *rdmUID;
+	rdmPacketTxBuffer.TransactionNumber = rdmPacketRxBuffer.TransactionNumber;
+	rdmPacketTxBuffer.PortID_ResponseType = RESPONSE_TYPE_ACK;
+	rdmPacketTxBuffer.MessageCount = 0;
+	rdmPacketTxBuffer.SubDevice = 0;
+	rdmPacketTxBuffer.CommandClass = 0; // is overwritten below
+	rdmPacketTxBuffer.ParameterID = rdmPacketRxBuffer.ParameterID;
+	
+	if (rdmPacketRxBuffer.CommandClass == DISCOVERY_COMMAND) 
+	{
+		rdmPacketTxBuffer.CommandClass = DISCOVERY_COMMAND_RESPONSE;
+		
+		switch (rdmPacketRxBuffer.ParameterID)
+		{
+			case DISC_UNIQUE_BRANCH:
+				
+			break;
+			case DISC_MUTE:
+				
+			break;
+			case DISC_UN_MUTE:
+				
+			break;
+			default:
+				rdmPacketTxBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
+				_RDMPutTxParam_Word(NR_UNKNOWN_PID);
+			break;
+		}
+	}
+	
+	
 
-	if (rdmReceiveBuffer.CommandClass == GET_COMMAND)
+	if (rdmPacketRxBuffer.CommandClass == GET_COMMAND)
 	{
 		// Set Command Class
-		rdmTransmitBuffer.CommandClass = GET_COMMAND_RESPONSE;
+		rdmPacketTxBuffer.CommandClass = GET_COMMAND_RESPONSE;
 
 		// All Commands supporting GET_COMMAND
-		switch (rdmReceiveBuffer.ParameterID)
+		switch (rdmPacketRxBuffer.ParameterID)
 		{
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case DEVICE_INFO:
@@ -387,57 +419,57 @@ uint8_t _evaluateRDMReqest(void)
 			// Subdevice Count (16 Bit)
 			// Sensor Count (8 Bit)
 			// Size: 0x13
-			_RDMOutputBufferPush_Word(RDM_PROTOCOL_VERSION, &dataIndex);
-			_RDMOutputBufferPush_Word(_ReadPGM_Word(&(aDeviceInfo->deviceModelID)), &dataIndex);
-			_RDMOutputBufferPush_Word(_ReadPGM_Word(&(aDeviceInfo->productCategory)), &dataIndex);
-			_RDMOutputBufferPush_DWord(_ReadPGM_DWord(&(aDeviceInfo->softwareVersionID)), &dataIndex);
-			_RDMOutputBufferPush_Word(_ReadPGM_Word(&(aDeviceInfo->dmxFootprint)), &dataIndex);
-			_RDMOutputBufferPush_Word(_ReadPGM_Word(&(aDeviceInfo->dmxPersonality)), &dataIndex);
-			_RDMOutputBufferPush_Word(dmx512ListenAddr, &dataIndex);
-			_RDMOutputBufferPush_Word(0, &dataIndex);
-			_RDMOutputBufferPush_Byte(_ReadPGM_Byte(&(aDeviceInfo->sensorCount)), &dataIndex);
+			_RDMPutTxParam_Word(RDM_PROTOCOL_VERSION);
+			_RDMPutTxParam_Word(td_ReadPGM_Word(&(aDeviceInfo.deviceModelID)));
+			_RDMPutTxParam_Word(td_ReadPGM_Word(&(aDeviceInfo.productCategory)));
+			_RDMPutTxParam_DWord(td_ReadPGM_DWord(&(aDeviceInfo.softwareVersionID)));
+			_RDMPutTxParam_Word(td_ReadPGM_Word(&(aDeviceInfo.dmxFootprint)));
+			_RDMPutTxParam_Word(td_ReadPGM_Word(&(aDeviceInfo.dmxPersonality)));
+			_RDMPutTxParam_Word(dmx512ListenAddr);
+			_RDMPutTxParam_Word(0);
+			_RDMPutTxParam_Byte(td_ReadPGM_Byte(&(aDeviceInfo.sensorCount)));
 
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case PRODUCT_DETAIL_ID_LIST:
 			// Product Detail ID (16 Bit)
 			// Size: 0x02
-			_RDMOutputBufferPush_Word(_ReadPGM_Word(&(aDeviceInfo->productDetailIDList)), &dataIndex);
+			_RDMPutTxParam_Word(td_ReadPGM_Word(&(aDeviceInfo.productDetailIDList)));
 
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case DEVICE_MODEL_DESCRIPTION:
 			// Device Model description (Str)
 			// Size: variable
-			_RDMOutputBufferPush_PGMStr(aStrDeviceModelDescription, sizeof(aStrDeviceModelDescription), &dataIndex);
+			_RDMPutTxParam_PGMStr(aStrDeviceModelDescription, sizeof(aStrDeviceModelDescription));
 
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case MANUFACTURER_LABEL:
 			// Manufacturer Label (Str)
 			// Size: variable
-			_RDMOutputBufferPush_PGMStr(aStrManufacturerLabel, sizeof(aStrManufacturerLabel), &dataIndex);
+			_RDMPutTxParam_PGMStr(aStrManufacturerLabel, sizeof(aStrManufacturerLabel));
 
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case DEVICE_LABEL:
 			// Device Label (Str)
 			// Size: variable
-			_RDMOutputBufferPush_PGMStr(aStrDeviceLabel, sizeof(aStrDeviceLabel), &dataIndex);
+			_RDMPutTxParam_PGMStr(aStrDeviceLabel, sizeof(aStrDeviceLabel));
 
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case SOFTWARE_VERSION_LABEL:
 			// Software Version Label (Str)
 			// Size: variable
-			_RDMOutputBufferPush_PGMStr(aStrSoftwareVersionLabel, sizeof(aStrSoftwareVersionLabel), &dataIndex);
+			_RDMPutTxParam_PGMStr(aStrSoftwareVersionLabel, sizeof(aStrSoftwareVersionLabel));
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case DMX_PERSONALITY:
 			// Current Personality (8 Bit)
 			// Number of Personalities (8 Bit)
 			// Size: 0x02
-			_RDMOutputBufferPush_Word(_ReadPGM_Word(&(aDeviceInfo->dmxPersonality)), &dataIndex);
+			_RDMPutTxParam_Word(td_ReadPGM_Word(&(aDeviceInfo.dmxPersonality)));
 
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -447,21 +479,22 @@ uint8_t _evaluateRDMReqest(void)
 			// Number of DMX 512 Slots (16 Bit)
 			// Variable Text Description (Str)
 			// Size: variable
-			/*
-			if (rdmReceiveBuffer.ParameterData[RDM_INPUT_DATA_BUFFER_SIZE-2] == 1) {
-				_RDMOutputBufferPush_Byte(  ReadPGM_Byte((const uint8_t*)&(aDeviceInformation.dmxPersonality)));
-				_RDMOutputBufferPush_Word(  _ReadPGM_Word(&(aDeviceInfo->dmxFootprint)));
-				_RDMOutputBufferPush_PGMStr(  aStrDmxPersonalityDescription, sizeof(aStrDmxPersonalityDescription));
-				} else {
-				_RDMOutputBufferPush_PGMStr(  aStrWrongRequest, sizeof(aStrWrongRequest));
+			
+			if (rdmPacketRxBuffer.ParameterData[0] == 1) {
+				_RDMPutTxParam_Byte(1);
+				_RDMPutTxParam_Word(td_ReadPGM_Word(&(aDeviceInfo.dmxFootprint)));
+				_RDMPutTxParam_PGMStr(aStrDmxPersonalityDescription, sizeof(aStrDmxPersonalityDescription));
+			} else {
+				rdmPacketTxBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
+				_RDMPutTxParam_Word(NR_DATA_OUT_OF_RANGE);
 			}
-			*/
+			
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case DMX_START_ADDRESS:
 			// DMX512 Stard Address (16 Bit)
 			// Size: 0x02
-			_RDMOutputBufferPush_Word(dmx512ListenAddr, &dataIndex);
+			_RDMPutTxParam_Word(dmx512ListenAddr);
 
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -470,21 +503,13 @@ uint8_t _evaluateRDMReqest(void)
 			// Slot Type (8 Bit)
 			// Slot Label ID (16 Bit)
 			// Size: 5 * 4 = 20 Byte
-			/*
-			// TBD
-			_RDMOutputBufferPush_Word(  0x0000);
-			_RDMOutputBufferPush_Byte(  ReadPGM_Byte(&(aDeviceInformation.slot0Type)));
-			_RDMOutputBufferPush_Word(  _ReadPGM_Word(&(aDeviceInformation.slot0LabelID)));
-			_RDMOutputBufferPush_Word(  0x0000);
-			_RDMOutputBufferPush_Byte(  ReadPGM_Byte(&(aDeviceInformation.slot1Type)));
-			_RDMOutputBufferPush_Word(  _ReadPGM_Word(&(aDeviceInformation.slot1LabelID)));
-			_RDMOutputBufferPush_Word(  0x0000);
-			_RDMOutputBufferPush_Byte(  ReadPGM_Byte(&(aDeviceInformation.slot2Type)));
-			_RDMOutputBufferPush_Word(  _ReadPGM_Word(&(aDeviceInformation.slot2LabelID)));
-			_RDMOutputBufferPush_Word(  0x0000);
-			_RDMOutputBufferPush_Byte(  ReadPGM_Byte(&(aDeviceInformation.slot3Type)));
-			_RDMOutputBufferPush_Word(  _ReadPGM_Word(&(aDeviceInformation.slot3LabelID)));
-			*/
+
+			for(sensorIndex = 0; sensorIndex < DEVICE_SLOT_NUM; ++sensorIndex) {
+				_RDMPutTxParam_Word(sensorIndex);
+				_RDMPutTxParam_Byte(td_ReadPGM_Byte(&(aDeviceSlots[sensorIndex].slotType)));
+				_RDMPutTxParam_Word(td_ReadPGM_Word(&(aDeviceSlots[sensorIndex].slotLabelID)));
+			}
+			
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case SENSOR_DEFINITION:
@@ -500,24 +525,25 @@ uint8_t _evaluateRDMReqest(void)
 			// Recorded Value Support (8 Bit)
 			// Description (Str)
 			// Size: 0x0D - 0x2D
-			/*
-			// TBD
-			if (rdmReceiveBuffer.ParameterData[RDM_INPUT_DATA_BUFFER_SIZE-1] == 1) {
-				_RDMOutputBufferPush_Byte(  0x01);
-				_RDMOutputBufferPush_Byte(  ReadPGM_Byte(&(aDeviceInformation.sensorType)));
-				_RDMOutputBufferPush_Byte(  ReadPGM_Byte(&(aDeviceInformation.sensorUnit)));
-				_RDMOutputBufferPush_Byte(  ReadPGM_Byte(&(aDeviceInformation.sensorPrefix)));
-				_RDMOutputBufferPush_Word(  _ReadPGM_Word(&(aDeviceInformation.sensorRangeMinValue))); // cast
-				_RDMOutputBufferPush_Word(  _ReadPGM_Word(&(aDeviceInformation.sensorRangeMaxValue)));
-				_RDMOutputBufferPush_Word(  _ReadPGM_Word(&(aDeviceInformation.sensorNormalMinValue)));
-				_RDMOutputBufferPush_Word(  _ReadPGM_Word(&(aDeviceInformation.sensorNormalMaxValue)));
-				_RDMOutputBufferPush_Byte(  ReadPGM_Byte(&(aDeviceInformation.sensorRecordedValueSupport)));
-				_RDMOutputBufferPush_PGMStr(  aStrSensorDescription, sizeof(aStrSensorDescription));
+			
+			sensorIndex = rdmPacketRxBuffer.ParameterData[0];
+			if (sensorIndex < DEVICE_SENSOR_NUM) {
+				_RDMPutTxParam_Byte(sensorIndex);
+				_RDMPutTxParam_Byte(td_ReadPGM_Byte(&(aTempSensors[sensorIndex].sensorType)));
+				_RDMPutTxParam_Byte(td_ReadPGM_Byte(&(aTempSensors[sensorIndex].sensorUnit)));
+				_RDMPutTxParam_Byte(td_ReadPGM_Byte(&(aTempSensors[sensorIndex].sensorPrefix)));
+				_RDMPutTxParam_Word(td_ReadPGM_Word((const uint16_t*)&(aTempSensors[sensorIndex].sensorRangeMinValue))); // cast
+				_RDMPutTxParam_Word(td_ReadPGM_Word((const uint16_t*)&(aTempSensors[sensorIndex].sensorRangeMaxValue)));
+				_RDMPutTxParam_Word(td_ReadPGM_Word((const uint16_t*)&(aTempSensors[sensorIndex].sensorNormalMinValue)));
+				_RDMPutTxParam_Word(td_ReadPGM_Word((const uint16_t*)&(aTempSensors[sensorIndex].sensorNormalMaxValue)));
+				_RDMPutTxParam_Byte(td_ReadPGM_Byte(&(aTempSensors[sensorIndex].sensorRecordedValueSupport)));
+				// _RDMPutTxParam_PGMStr(  aStrSensorDescription, sizeof(aStrSensorDescription));
 			}
 			else {
-				_RDMOutputBufferPush_PGMStr(  aStrWrongRequest, sizeof(aStrWrongRequest));
+				rdmPacketTxBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
+				_RDMPutTxParam_Word(NR_DATA_OUT_OF_RANGE);
 			}
-			*/
+			
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case SENSOR_VALUE:
@@ -527,32 +553,24 @@ uint8_t _evaluateRDMReqest(void)
 			// Lowest Value (16 Bit) (Std 0)
 			// Recorded Value (16 Bit) (Std 0)
 			// Size: 0x09
-			_RDMOutputBufferPush_Byte(0x01, &dataIndex);
-			// TODO: Add callback ReadRamByteToTransmitBuffer(ReadCurrentTemperature());
-			_RDMOutputBufferPush_Word(0x0000, &dataIndex);
-			_RDMOutputBufferPush_Word(0x0000, &dataIndex);
-			_RDMOutputBufferPush_Word(0x0000, &dataIndex);
-
-			break;
-			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-			case DEVICE_HOURS:
-			// Device Hours (32 Bit)
-			// Size: 0x04
-			// TODO: report device hours
-
-			break;
-			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-			case DEVICE_POWER_CYCLES:
-			// Device Power Cycles (32 Bit)
-			// Size: 0x04
-			// TODO: report power clycles
+			sensorIndex = rdmPacketRxBuffer.ParameterData[0];
+			if (sensorIndex < td_ReadPGM_Byte(&(aDeviceInfo.sensorCount))) {
+				_RDMPutTxParam_Byte(sensorIndex);
+				_RDMPutTxParam_Word((uint16_t)td_ReadSensor(sensorIndex));
+				_RDMPutTxParam_Word(0x0000);
+				_RDMPutTxParam_Word(0x0000);
+				_RDMPutTxParam_Word(0x0000);
+			} else {
+				rdmPacketTxBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
+				_RDMPutTxParam_Word(NR_DATA_OUT_OF_RANGE);
+			}
 
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case IDENTIFY_DEVICE:
 			// Identify Device State (8 Bit)
 			// Size 0x01
-
+			_RDMPutTxParam_Byte(deviceIdentifyState);
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case 0x8000: // TODO: Implement user def test data respond
@@ -563,36 +581,50 @@ uint8_t _evaluateRDMReqest(void)
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			// Exception, unknown PID
 			default:
-			rdmTransmitBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
-			_RDMOutputBufferPush_Word(NR_UNKNOWN_PID, &dataIndex);
-			// GPIOR1_rdmResponseMDBLength = 2;
+			rdmPacketTxBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
+			_RDMPutTxParam_Word(NR_UNKNOWN_PID);
 			break;
 
 		} // End switch PID
 	}
-	else if (rdmReceiveBuffer.CommandClass == SET_COMMAND)
+	else if (rdmPacketRxBuffer.CommandClass == SET_COMMAND)
 	{
 		// Set Command Class
-		rdmTransmitBuffer.CommandClass = SET_COMMAND_RESPONSE;
+		rdmPacketTxBuffer.CommandClass = SET_COMMAND_RESPONSE;
 
-		switch (rdmReceiveBuffer.ParameterID)
+		switch (rdmPacketRxBuffer.ParameterID)
 		{
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case DMX_START_ADDRESS:
 			// Empty response
 			// -> Put DMX512 Address in EEPROM
-
+			tmpValue = (rdmPacketRxBuffer.ParameterData[0] << 8) | (rdmPacketRxBuffer.ParameterData[0] & 0xFF);
+			if (tmpValue > 0 && tmpValue < (DMX_512_MAX_CHANNEL_NR - NUM_DMX_RECV_VALUES)) {
+				dmx512ListenAddr = tmpValue;
+				td_SetDMXAddr(tmpValue);
+			} else {
+				rdmPacketTxBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
+				_RDMPutTxParam_Word(NR_DATA_OUT_OF_RANGE);
+			}
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case IDENTIFY_DEVICE:
 			// Empty Response
 			// Set Identify State to recomended state
+			if (rdmPacketRxBuffer.ParameterData[0] > 0) {
+				deviceIdentifyState = 1;
+			} else {
+				deviceIdentifyState = 0;
+			}
+			td_IdentifyDevice(deviceIdentifyState);
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			case RESET_DEVICE:
 			// Empty Response
 			// -> Invoke Reset (0x01 Warm Reset/0xFF Cold Reset)
-
+			if (rdmPacketRxBuffer.ParameterData[0] == 0xFF) {
+				td_ResetDevice();
+			}
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			// For other Commands Set is not allowed
@@ -611,19 +643,33 @@ uint8_t _evaluateRDMReqest(void)
 			case DEVICE_HOURS:
 			case DEVICE_POWER_CYCLES:
 			// ERROR - Command Class Set not Allowed
-			rdmTransmitBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
-			_RDMOutputBufferPush_Word(NR_UNSUPPORTED_COMMAND_CLASS, &dataIndex);
-			// GPIOR1_rdmResponseMDBLength = 2;
+			rdmPacketTxBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
+			_RDMPutTxParam_Word(NR_UNSUPPORTED_COMMAND_CLASS);
 			break;
 			// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 			// Exception, unknown PID
 			default:
-			rdmTransmitBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
-			_RDMOutputBufferPush_Word(NR_UNKNOWN_PID, &dataIndex);
-			// GPIOR1_rdmResponseMDBLength = 2;
+			rdmPacketTxBuffer.PortID_ResponseType = RESPONSE_TYPE_NACK_REASON;
+			_RDMPutTxParam_Word(NR_UNKNOWN_PID);
 			break;
 
 		} // End switch PID
 	} // End if/else Get/Set Command
+	
+	
 	return 	NO_ERROR;
+}
+
+
+
+uint8_t* GetRDMResponse(uint8_t *responseLen)
+{
+	uint8_t paramLen = rdmPacketTxBuffer.ParameterDataLength;
+	rdmPacketTxBuffer.ParameterData[RDM_OUTPUT_PARAM_BUFFER_SIZE-1-(paramLen++)] = WRD_LOW(rdmPacketTxChecksum);
+	rdmPacketTxBuffer.ParameterData[RDM_OUTPUT_PARAM_BUFFER_SIZE-1-(paramLen++)] = WRD_HIGH(rdmPacketTxChecksum);
+	rdmPacketTxBuffer.ParameterDataLength = paramLen;
+	rdmPacketTxBuffer.MessageLength = paramLen + RDM_PACKET_BASE_SIZE;
+	
+	*responseLen = rdmPacketTxBuffer.MessageLength;
+	return rdmPacketTxBuffer.bytes;
 }

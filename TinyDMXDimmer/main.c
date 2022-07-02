@@ -37,10 +37,17 @@
 // Prototypes
 // ----------------------------------------------------------------------------
 
-void		InitDevice(void);				
+void		InitDevice(void);
+void		UARTModeTransmit(void);
+void		UARTModeReceive(void);
+uint8_t		UARTSendData(uint8_t *buffer, uint16_t len);
+
 void		ProcessDMXValues(void);
+void		ProcessRDMRequest(void);
 void		StartResetPulseTimer(void);
 int16_t		ReadCurrentTemperature();
+
+
 
 ISR (USART0_RX_vect);		// UART Receive ISR
 ISR (TIMER0_OVF_vect);		// Timer0 Overflow ISR
@@ -67,22 +74,26 @@ int main(void)
 {
 	tuRdmUID thisRdmUID;
 	uint16_t dmxAddr;
+	uint8_t  dmxStatus = 0;
 	
 	thisRdmUID.deviceID = 0xbc9a7856;
 	thisRdmUID.manufacturerID = 0x3412;
 	dmxAddr = 1;
 	
 	InitDevice();
-	InitTinyDMX(&thisRdmUID, dmxAddr, StartResetPulseTimer);
+	InitTinyDMX(&thisRdmUID, dmxAddr);
 
 	sei();
 
 	while(1) {
 		
 		asm volatile ("nop");
-		if (GetSatus() & DMX_DATA_READY_FOR_PROCESS) {
+		dmxStatus = GetSatus();
+		if (dmxStatus & DMX_DATA_READY_FOR_PROCESS) {
 			ProcessDMXValues();
 			asm volatile ("nop");
+		} else if (dmxStatus & RDM_DATA_READY_FOR_PROCESS) {
+			ProcessRDMRequest();
 		}
 	}
 }
@@ -121,6 +132,54 @@ void ProcessDMXValues()
 
 
 
+void ProcessRDMRequest()
+{
+	uint8_t result = 0;
+	uint8_t *rdmResponseBuffer = 0;
+	uint8_t rdmResponseLength = 0;
+	uint8_t isDiscoveryResponse = 0;
+	
+	cli();
+	
+	result = EvaluateRDMRequest();
+	rdmResponseBuffer = GetRDMResponse(&rdmResponseLength);
+	
+	UARTModeTransmit();
+	UARTSendData(rdmResponseBuffer, rdmResponseLength);
+	UARTModeReceive();
+	
+	
+	sei();
+}
+
+
+
+uint8_t UARTSendData(uint8_t *buffer, uint16_t len)
+{
+	uint16_t txIndex = 0;
+	
+	while (txIndex < len) 
+	{
+		// Wait for empty transmit buffer
+		while ( !( UCSR0A & (1<<UDRE0)) ) ;
+		UDR0 = buffer[txIndex++];
+	}
+}
+
+
+void UARTModeTransmit(void)
+{
+	PORTA &= ~(1<<PINA4);
+}
+
+
+void UARTModeReceive(void)
+{
+	PORTA |= (1<<PINA4);
+}
+
+
+
 ISR (USART0_RX_vect)
 {
 	uint8_t  uartReceivedData = 1;
@@ -138,13 +197,11 @@ ISR (USART0_RX_vect)
 }
 
 
-
 ISR(TIMER0_COMPA_vect)
 {
 	MinResetLengthReached();
 	TIMSK0 &= ~(1<<OCIE0A);
 }
-
 
 
 ISR (TIMER0_OVF_vect)
@@ -154,14 +211,15 @@ ISR (TIMER0_OVF_vect)
 }
 
 
-
 ISR (PCINT0_vect)
 {
 	ResetPinChanged();
 	GIMSK &= ~(1<<PCIE0);
 }
 
-void StartResetPulseTimer(void)
+
+// external platform dependent functions of tinydmx lib
+void td_StartTimer(void)
 {
 	// Loading Timer with data to verify minimum Reset-Pulse length of 88us
 	OCR0A = 41;					// = 45µs until Interrupt occurs TODO: Anpassen wenn sich Code VOR diesen Zeilen ändert
@@ -170,6 +228,50 @@ void StartResetPulseTimer(void)
 	TIMSK0 |= (1<<OCIE0A);		// Timer0 compare interrupt enable
 	GIFR |= (1<<PCIF0);			// Enable Pin-Change Detector for rising edge at the end of Reset-Pulse
 	GIMSK |= (1<<PCIE0);		// Reset Pin-Change interrupt flag
+}
+
+
+
+void td_SetDMXAddr(uint16_t addr)
+{
+	
+}
+
+
+int16_t td_ReadSensor(uint8_t sensor)
+{
+	
+	return 0;
+}
+
+
+void td_IdentifyDevice(uint8_t state)
+{
+	
+}
+
+
+void	td_ResetDevice(void)
+{
+	// reset device with Watchdog
+	
+}
+
+
+// Wrapper for pgm_read functions
+uint8_t td_ReadPGM_Byte (const uint8_t* addr)
+{
+	return pgm_read_byte(addr);
+}
+
+uint16_t td_ReadPGM_Word (const uint16_t* addr)
+{
+	return pgm_read_word(addr);
+}
+
+uint32_t td_ReadPGM_DWord (const uint32_t* addr)
+{
+	return pgm_read_dword(addr);
 }
 
 
@@ -243,7 +345,7 @@ void InitDevice(void)
 	UCSR0C |= (1<<USBS0);		// Two stop bits
 	UBRR0L = 1;					// with U2X0 (UCSR0A) = 0 -> 250k BAUD, hardcoded because of fixed DMX BAUD
 	// Mapping, Async Mode, 8 Data Bits is left default
-	UCSR0B |= (1<<RXEN0);		// Enable reception
+	UCSR0B |= (1<<RXEN0) | (1<<TXEN0);	// Enable tx and rx
 }
 
 

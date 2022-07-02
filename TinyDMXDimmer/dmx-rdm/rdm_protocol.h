@@ -135,16 +135,18 @@ typedef  union
 } tuRdmUID;
 
 // size of base structure _without_ ParameterData
-#define RDM_PACKET_BASE_SIZE		24
-#define RDM_INPUT_BUFFER_LAST		RDM_INPUT_BUFFER_SIZE-1
-#define RDM_OUTPUT_BUFFER_LAST		RDM_OUTPUT_BUFFER_SIZE-1
+#define RDM_PACKET_BASE_SIZE			24
+#define RDM_INPUT_BUFFER_LAST			RDM_INPUT_BUFFER_SIZE-1
+#define RDM_INPUT_PARAM_BUFFER_SIZE		RDM_INPUT_BUFFER_SIZE - RDM_PACKET_BASE_SIZE
+#define RDM_OUTPUT_BUFFER_LAST			RDM_OUTPUT_BUFFER_SIZE-1
+#define RDM_OUTPUT_PARAM_BUFFER_SIZE	RDM_OUTPUT_BUFFER_SIZE - RDM_PACKET_BASE_SIZE
 
 typedef union
 {
 	struct __attribute__((__packed__))
 	{
 		// Reversed because of Byte ordering
-		uint8_t		ParameterData[RDM_INPUT_BUFFER_SIZE - RDM_PACKET_BASE_SIZE];
+		uint8_t		ParameterData[RDM_INPUT_PARAM_BUFFER_SIZE];
 		uint8_t		ParameterDataLength;
 		uint16_t	ParameterID;
 		uint8_t		CommandClass;
@@ -166,7 +168,7 @@ typedef union
 	struct __attribute__((__packed__))
 	{
 		// Reversed because of Byte ordering
-		uint8_t		ParameterData[RDM_OUTPUT_BUFFER_SIZE - RDM_PACKET_BASE_SIZE];
+		uint8_t		ParameterData[RDM_OUTPUT_PARAM_BUFFER_SIZE];
 		uint8_t		ParameterDataLength;
 		uint16_t	ParameterID;
 		uint8_t		CommandClass;
